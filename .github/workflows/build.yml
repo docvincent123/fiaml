@@ -72,6 +72,7 @@ jobs:
         shell: pwsh
         run: |
           if (-not (Test-Path artifacts/desktop/RehaFlow.exe)) { throw 'RehaFlow.exe not produced' }
+          if (-not (Test-Path artifacts/desktop/RehaFlow.pri)) { throw 'Application resource index RehaFlow.pri not published' }
           Copy-Item README.md artifacts/desktop/README.md
       - name: Parse local PowerShell scripts
         shell: pwsh
