@@ -25,6 +25,7 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Initial admin password required}
       PUBLIC_URL: ${PUBLIC_URL:?Local HTTPS address required}
       NODE_ENV: production
+      TRUST_PROXY: '1'
     depends_on:
       db:
         condition: service_healthy

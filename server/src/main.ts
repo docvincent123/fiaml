@@ -14,6 +14,8 @@ const db=new Database();const clinic=new Clinic(db);
 async function main(){
  await db.migrate();await clinic.bootstrap();
  const app=await NestFactory.create(App,{logger:['error','warn','log']});
+ // In the Compose deployment only Caddy reaches this port; trust exactly that hop.
+ app.getHttpAdapter().getInstance().set('trust proxy',process.env.TRUST_PROXY==='1'?1:false);
  app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'","'unsafe-inline'"],imgSrc:["'self'",'data:','blob:'],connectSrc:["'self'",'ws:','wss:'],upgradeInsecureRequests:process.env.NODE_ENV==='production'?[]:null}},crossOriginEmbedderPolicy:false}));
  app.use('/api',(_req:any,res:any,next:any)=>{res.setHeader('Cache-Control','no-store');next();});
  app.useGlobalFilters(new Errors());

@@ -54,14 +54,14 @@ public sealed partial class MainWindow : Window {
             browser?.Close();BrowserHost.Children.Clear();origin=target;uiReady=false;
             var profile=System.IO.Path.Combine(folder,"WebView2",Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(target.AbsoluteUri)))[..16]);
             System.IO.Directory.CreateDirectory(profile);
-            var environment=await CoreWebView2Environment.CreateAsync(null,profile);
+            var environment=await CoreWebView2Environment.CreateWithOptionsAsync("",profile,new CoreWebView2EnvironmentOptions());
             browser=new WebView2();BrowserHost.Children.Add(browser);
             await browser.EnsureCoreWebView2Async(environment);
             if(closing)return;
             var core=browser.CoreWebView2;
             core.Settings.AreDevToolsEnabled=false;core.Settings.AreDefaultContextMenusEnabled=false;
             core.Settings.IsStatusBarEnabled=false;core.Settings.IsPasswordAutosaveEnabled=false;core.Settings.IsGeneralAutofillEnabled=false;
-            core.NavigationStarting+=(_,args)=>{if(!SameOrigin(args.Uri))args.Cancel=true;};
+            core.NavigationStarting+=(_,args)=>{if(!SameOrigin(args.Uri)&&!args.Uri.StartsWith("blob:"+target.GetLeftPart(UriPartial.Authority)+"/",StringComparison.Ordinal))args.Cancel=true;};
             core.NewWindowRequested+=(_,args)=>{args.Handled=true;if(SameOrigin(args.Uri))core.Navigate(args.Uri);};
             core.PermissionRequested+=(_,args)=>{args.State=CoreWebView2PermissionState.Deny;};
             core.ServerCertificateErrorDetected+=(_,args)=>{args.Action=CoreWebView2ServerCertificateErrorAction.Cancel;Failure("Сертифікат сервера не довірений. Встановіть QureMed-Local-CA.crt згідно з інструкцією.");};
@@ -69,7 +69,7 @@ public sealed partial class MainWindow : Window {
             core.NavigationCompleted+=async(_,args)=>{
                 if(!args.IsSuccess){Failure("Не вдалося відкрити інтерфейс. Перевірте доступність сервера та спробуйте підключитися ще раз.");return;}
                 await Task.Delay(12000);
-                if(!closing&&!uiReady)Failure("Інтерфейс не завершив завантаження. Оновіть локальний сервер і натисніть «Підключитися».");
+                if(!closing&&ReferenceEquals(browser?.CoreWebView2,core)&&!uiReady)Failure("Інтерфейс не завершив завантаження. Оновіть локальний сервер і натисніть «Підключитися».");
             };
             // One-way readiness signal only. No filesystem, command execution, or native auth bridge is exposed.
             core.WebMessageReceived+=(_,args)=>{
