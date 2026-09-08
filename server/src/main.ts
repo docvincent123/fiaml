@@ -27,8 +27,8 @@ async function main(){
    await db.tx(async c=>{const rows=(await c.query('SELECT id FROM outbox WHERE sent_at IS NULL ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED')).rows;if(rows.length){io.to('changes').emit('changed');await c.query('UPDATE outbox SET sent_at=now() WHERE id=ANY($1::bigint[])',[rows.map(r=>r.id)]);}});
  }catch{console.error('Realtime delivery will retry');}finally{polling=false;}},2000);
  timer.unref();
- // Register API routes before the SPA fallback.
- await app.init();
+ // Mount static content before Nest registers its terminal 404 handler.
+ // The fallback skips /api and /socket.io so Nest still owns API routing.
  const web=resolve(__dirname,'../../web/dist');
  app.use(express.static(web,{index:false}));
  app.use((req:any,res:any,next:any)=>{if(req.method==='GET'&&!req.path.startsWith('/api/')&&!req.path.startsWith('/socket.io')&&existsSync(resolve(web,'index.html')))res.sendFile(resolve(web,'index.html'));else next();});
