@@ -1,0 +1,12 @@
+.git
+node_modules
+**/node_modules
+**/dist
+**/bin
+**/obj
+.env
+.env.*
+backups
+artifacts
+desktop
+*.zip

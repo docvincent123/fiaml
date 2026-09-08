@@ -1,0 +1,5 @@
+{$PUBLIC_URL} {
+    tls internal
+    encode gzip zstd
+    reverse_proxy server:3000
+}

@@ -1,0 +1,14 @@
+node_modules/
+**/dist/
+**/bin/
+**/obj/
+.env
+.env.*
+!.env.example
+*.pfx
+*.key
+backups/
+artifacts/
+*.log
+QureMed-Local-CA.crt
+*.tsbuildinfo

@@ -1,0 +1,54 @@
+name: quremed
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: quremed
+      POSTGRES_USER: quremed
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Run Setup-Local.ps1 first}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quremed -d quremed"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  server:
+    build: .
+    restart: unless-stopped
+    init: true
+    environment:
+      DATABASE_URL: postgres://quremed:${DB_PASSWORD}@db:5432/quremed
+      JWT_SECRET: ${JWT_SECRET:?Run Setup-Local.ps1 first}
+      ADMIN_LOGIN: ${ADMIN_LOGIN:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Initial admin password required}
+      PUBLIC_URL: ${PUBLIC_URL:?Local HTTPS address required}
+      NODE_ENV: production
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - certificates:/data
+      - caddy_config:/config
+    depends_on:
+      server:
+        condition: service_healthy
+volumes:
+  database:
+  certificates:
+  caddy_config:

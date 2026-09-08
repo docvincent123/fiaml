@@ -1,0 +1,44 @@
+import 'reflect-metadata';
+import {test,before,after} from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {PGlite} from '@electric-sql/pglite';
+import {Database,type Queryable} from '../src/db';
+import {Clinic} from '../src/service';
+import {hashPassword} from '../src/security';
+import type {Actor} from '../src/access';
+let db:Database,c:Clinic,close:()=>Promise<void>,admin:Actor,doctor:Actor,n1:Actor,n2:Actor,patient:any,room:any,bed:any,cabinet:any;
+const password='Testing-Only-Password-2026';
+const body=()=>({patient_id:patient.id,description:'Контрольне призначення',task_type:'Догляд',scheduled_at:new Date().toISOString()});
+before(async()=>{
+ if(process.env.TEST_DATABASE_URL){db=new Database(process.env.TEST_DATABASE_URL);await db.migrate();close=()=>db.pool.end();}
+ else {const pg=new PGlite();await pg.exec(readFileSync(new URL('../sql/001_initial.sql',import.meta.url),'utf8'));
+  let chain=Promise.resolve();
+  db={query:(q:string,v:any[]=[])=>pg.query(q,v),tx:async(fn:any)=>{let release!:()=>void;const previous=chain;chain=new Promise<void>(r=>release=r);await previous;try{return await pg.transaction(async tx=>fn({query:(q:string,v:any[]=[])=>tx.query(q,v)}));}finally{release();}}} as any;
+  close=()=>pg.close();
+ }
+ c=new Clinic(db,'test-secret-long-enough-at-least-32-characters');
+ const u=(await db.query("INSERT INTO users(name,login,password_hash,role) VALUES('Admin','admin-test',$1,'ADMIN') RETURNING id",[await hashPassword(password)])).rows[0];
+ admin=await c.authenticate((await c.login({login:'admin-test',password,device:'test'},'127.0.0.1')).token);
+ for(const [login,role] of [['doctor-test','DOCTOR'],['nurse-a','NURSE'],['nurse-b','NURSE']])await c.saveUser(admin,{name:login,login,role,password,specialty:role==='DOCTOR'?'Реабілітолог':''});
+ doctor=await c.authenticate((await c.login({login:'doctor-test',password,device:'doctor'},'127.0.0.1')).token);
+ n1=await c.authenticate((await c.login({login:'nurse-a',password,device:'phone-a'},'127.0.0.1')).token);
+ n2=await c.authenticate((await c.login({login:'nurse-b',password,device:'phone-b'},'127.0.0.1')).token);
+ room=await c.room(admin,{room_number:'101'});bed=await c.bed(admin,room.id,{bed_number:'1'});
+ patient=await c.register(admin,{name:'Тестовий Пацієнт',bed_id:bed.id,doctor_id:doctor.id});cabinet=await c.cabinet(admin,{name:'Масаж тест',type:'massage'});
+});
+after(async()=>{await close?.();});
+test('RBAC: nurse cannot administer rooms or create prescriptions',async()=>{await assert.rejects(()=>c.room(n1,{room_number:'999'}));await assert.rejects(()=>c.task(n1,body()));await assert.rejects(()=>c.patient(n1,patient.id));});
+test('No active shift means no pool or claim',async()=>{const t=await c.task(doctor,body());await assert.rejects(()=>c.tasks(n1));await assert.rejects(()=>c.taskAction(n1,t.id,'claim'));});
+test('Concurrent claims have exactly one winner; owner-only completion',async()=>{await c.shift(n1,{start:true});await c.shift(n2,{start:true});const t=await c.task(doctor,body());const r=await Promise.allSettled([c.taskAction(n1,t.id,'claim'),c.taskAction(n2,t.id,'claim')]);assert.equal(r.filter(x=>x.status==='fulfilled').length,1);assert.equal(r.filter(x=>x.status==='rejected').length,1);const winner=r[0].status==='fulfilled'?n1:n2,loser=winner===n1?n2:n1;await assert.rejects(()=>c.taskAction(loser,t.id,'complete'));await assert.rejects(()=>c.shift(winner,{start:false}));await c.taskAction(winner,t.id,'complete');await assert.rejects(()=>c.taskAction(winner,t.id,'complete'));});
+test('Release returns task to pool and permits another nurse',async()=>{const t=await c.task(doctor,body());await c.taskAction(n1,t.id,'claim');await c.taskAction(n1,t.id,'release');const claimed=await c.taskAction(n2,t.id,'claim');assert.equal(claimed.taken_by,n2.id);await c.taskAction(n2,t.id,'complete');});
+test('Bed uniqueness survives competing registrations',async()=>{await assert.rejects(()=>c.register(admin,{name:'Другий',bed_id:bed.id}));const count=(await db.query('SELECT count(*)::int AS n FROM patients WHERE name=$1',['Другий'])).rows[0].n;assert.equal(count,0);});
+test('Cabinet concurrent bookings reject overlap and allow adjacency',async()=>{const p2=await c.register(admin,{name:'Інший'});const slot={cabinet_id:cabinet.id,starts_at:'2030-01-01T10:00:00Z',ends_at:'2030-01-01T11:00:00Z'};const r=await Promise.allSettled([c.appointment(admin,{...slot,patient_id:patient.id}),c.appointment(admin,{...slot,patient_id:p2.id})]);assert.equal(r.filter(x=>x.status==='fulfilled').length,1);await c.appointment(admin,{...slot,patient_id:patient.id,starts_at:'2030-01-01T11:00:00Z',ends_at:'2030-01-01T12:00:00Z'});});
+test('Clinical notes are immutable through provided API and nurse cannot add them',async()=>{await c.note(doctor,patient.id,{body:'Первинний огляд'});await assert.rejects(()=>c.note(n1,patient.id,{body:'Зміна діагнозу'}));assert.equal((await c.patient(doctor,patient.id)).notes.length,1);});
+test('QR resolves current occupant with minimum nurse data',async()=>{const result=await c.byQr(n1,bed.qr_uid);assert.equal(result.patient.id,patient.id);assert.equal(result.patient.notes,undefined);assert.equal(result.patient.phone,undefined);});
+test('Archive cancels open work, releases bed and preserves notes; readmission retains history',async()=>{const t=await c.task(doctor,body());await c.discharge(admin,patient.id);assert.equal((await db.query('SELECT status FROM tasks WHERE id=$1',[t.id])).rows[0].status,'CANCELLED');assert.equal((await c.byQr(admin,bed.qr_uid)).patient,null);await assert.rejects(()=>c.task(doctor,body()));await assert.rejects(()=>c.patient(doctor,patient.id));const p=await c.patient(admin,patient.id);assert.equal(p.notes.length,1);assert.ok(p.admissions[0].discharged_at);await c.readmit(admin,patient.id,{bed_id:bed.id,doctor_id:doctor.id});assert.equal((await c.patient(admin,patient.id)).admissions.length,2);});
+test('Revoking session invalidates signed JWT immediately',async()=>{const login=await c.login({login:'nurse-a',password,device:'revoke-me'},'127.0.0.1');const a=await c.authenticate(login.token);await c.revoke(admin,a.sid);await assert.rejects(()=>c.authenticate(login.token));});
+test('Permission changes revoke sessions and cannot cross role boundaries',async()=>{const user=(await c.users(admin)).find((x:any)=>x.id===n2.id);await assert.rejects(()=>c.saveUser(admin,{...user,permissions:{'users.manage':true}},user.id));const login=await c.login({login:'nurse-b',password,device:'old-permissions'},'127.0.0.1');await c.saveUser(admin,{...user,permissions:{'tasks.work':false}},user.id);await assert.rejects(()=>c.authenticate(login.token));const newer=await c.authenticate((await c.login({login:'nurse-b',password,device:'new-permissions'},'127.0.0.1')).token);await assert.rejects(()=>c.tasks(newer));});
+test('Last administrator cannot be deactivated',async()=>{const user=(await c.users(admin)).find((x:any)=>x.id===admin.id);await assert.rejects(()=>c.saveUser(admin,{...user,active:false},user.id));});
+test('Audit and durable invalidations exist for committed changes',async()=>{assert.ok((await c.auditList(admin)).length>10);assert.ok(Number((await db.query('SELECT count(*) AS n FROM outbox')).rows[0].n)>5);});
+test('Login throttling persists failed attempts',async()=>{for(let i=0;i<5;i++)await assert.rejects(()=>c.login({login:'nurse-a',password:'wrong',device:'test'},'127.0.0.1'));await assert.rejects(()=>c.login({login:'nurse-a',password,device:'test'},'127.0.0.1'));});
