@@ -7,12 +7,12 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 namespace QureMed.Desktop;
-public sealed partial class MainWindow : Window {
+public sealed class MainWindow : Window {
     readonly HttpClient http = new(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(12) };
     readonly string folder = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QureMed");
     WebView2? browser; Uri? origin; bool connecting; bool started; bool closing; bool uiReady;
     public MainWindow() {
-        InitializeComponent(); Title = "RehaFlow · QureMed Industries";
+        BuildShell(); Title = "RehaFlow · QureMed Industries";
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1380, 900));
         try {
             var file = System.IO.Path.Combine(folder,"server.txt");
@@ -20,6 +20,42 @@ public sealed partial class MainWindow : Window {
         } catch { Address.Text = "https://192.168.1.100"; }
         Closed += (_, _) => { closing = true; browser?.Close(); http.Dispose(); };
         App.StartupLog("Connection shell ready");
+    }
+    // Build the small native connection surface directly; clinical screens are React.
+    // This avoids a dependency on a separately deployed MainWindow XBF resource.
+    readonly TextBox Address = new() { PlaceholderText = "https://192.168.1.100" };
+    readonly Button ConnectButton = new() { Content = "Підключитися" };
+    readonly Button RuntimeButton = new() { Content = "Встановити Microsoft Edge WebView2", Visibility = Visibility.Collapsed };
+    readonly Grid BrowserHost = new();
+    readonly Grid ConnectionScreen = new();
+    readonly Border ShellFooter = new();
+    readonly TextBlock StatusText = new() { Text = "Вкажіть адресу локального сервера та підключіться.", FontSize = 16, TextWrapping = TextWrapping.Wrap };
+    readonly ProgressBar Progress = new() { IsIndeterminate = true, Visibility = Visibility.Collapsed };
+    static Microsoft.UI.Xaml.Media.SolidColorBrush Color(byte r,byte g,byte b) => new(Windows.UI.Color.FromArgb(255,r,g,b));
+    void BuildShell() {
+        var background=Color(11,16,26);var line=Color(37,48,68);var mint=Color(121,225,192);
+        var root=new Grid { RequestedTheme=ElementTheme.Dark, Background=background };
+        root.RowDefinitions.Add(new RowDefinition { Height=GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height=new GridLength(1,GridUnitType.Star) });
+        root.RowDefinitions.Add(new RowDefinition { Height=GridLength.Auto });
+        var toolbar=new Grid { ColumnSpacing=12 };
+        foreach(var width in new[]{GridLength.Auto,new GridLength(1,GridUnitType.Star),GridLength.Auto,GridLength.Auto})toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width=width });
+        toolbar.Children.Add(new TextBlock { Text="RehaFlow", FontSize=19, Foreground=mint, VerticalAlignment=VerticalAlignment.Center });
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(Address,"Адреса сервера");
+        Address.KeyDown+=Address_KeyDown;Grid.SetColumn(Address,1);toolbar.Children.Add(Address);
+        ConnectButton.Click+=Connect_Click;Grid.SetColumn(ConnectButton,2);toolbar.Children.Add(ConnectButton);
+        var reload=new Button { Content="Оновити" };reload.Click+=Reload_Click;Grid.SetColumn(reload,3);toolbar.Children.Add(reload);
+        root.Children.Add(new Border { Padding=new Thickness(18,10,18,10), BorderThickness=new Thickness(0,0,0,1), BorderBrush=line, Child=toolbar });
+        Grid.SetRow(BrowserHost,1);root.Children.Add(BrowserHost);
+        ConnectionScreen.Background=background;Grid.SetRow(ConnectionScreen,1);
+        var panel=new StackPanel { MaxWidth=480, HorizontalAlignment=HorizontalAlignment.Center, VerticalAlignment=VerticalAlignment.Center, Spacing=20, Padding=new Thickness(24) };
+        panel.Children.Add(new TextBlock { Text="QUREMED INDUSTRIES", Foreground=mint, FontSize=14 });
+        panel.Children.Add(new TextBlock { Text="Ваш центр.\nЄдиний робочий простір.", FontSize=36, TextWrapping=TextWrapping.Wrap });
+        StatusText.Foreground=Color(168,184,202);panel.Children.Add(StatusText);panel.Children.Add(Progress);
+        RuntimeButton.Click+=Runtime_Click;panel.Children.Add(RuntimeButton);ConnectionScreen.Children.Add(panel);root.Children.Add(ConnectionScreen);
+        ShellFooter.BorderBrush=line;ShellFooter.BorderThickness=new Thickness(0,1,0,0);ShellFooter.Padding=new Thickness(18,10,18,10);
+        ShellFooter.Child=new TextBlock { Text="сервери QureMed Industries", Foreground=Color(148,162,184), FontSize=12 };
+        Grid.SetRow(ShellFooter,2);root.Children.Add(ShellFooter);root.Loaded+=Root_Loaded;Content=root;
     }
     static Uri ValidateAddress(string value) {
         if (!Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri) || !string.IsNullOrEmpty(uri.UserInfo) || uri.AbsolutePath != "/" || uri.Query.Length > 0 || uri.Fragment.Length > 0)
@@ -35,7 +71,7 @@ public sealed partial class MainWindow : Window {
     }
     async void Connect_Click(object sender,RoutedEventArgs e) => await Connect();
     async void Address_KeyDown(object sender,KeyRoutedEventArgs e) { if(e.Key==Windows.System.VirtualKey.Enter){e.Handled=true;await Connect();} }
-    async void Reload_Click(object sender,RoutedEventArgs e) { if(connecting)return;if(browser?.CoreWebView2!=null&&origin!=null){ConnectionScreen.Visibility=Visibility.Visible;StatusText.Text="Оновлюємо робочий простір…";browser.CoreWebView2.Reload();}else await Connect(); }
+    async void Reload_Click(object sender,RoutedEventArgs e) { if(connecting)return;if(browser?.CoreWebView2!=null&&origin!=null){uiReady=false;ConnectionScreen.Visibility=Visibility.Visible;StatusText.Text="Оновлюємо робочий простір…";browser.CoreWebView2.Reload();}else await Connect(); }
     async void Runtime_Click(object sender,RoutedEventArgs e) => await Windows.System.Launcher.LaunchUriAsync(new Uri("https://developer.microsoft.com/microsoft-edge/webview2/"));
     void Failure(string text) {if(closing)return;StatusText.Text=text;Progress.Visibility=Visibility.Collapsed;ConnectionScreen.Visibility=Visibility.Visible;ShellFooter.Visibility=Visibility.Visible;}
     bool SameOrigin(string uri) => origin!=null && Uri.TryCreate(uri,UriKind.Absolute,out var target) && target.Scheme==origin.Scheme && target.Host==origin.Host && target.Port==origin.Port;
