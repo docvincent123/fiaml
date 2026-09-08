@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+const base=process.env.SMOKE_URL||'http://127.0.0.1:3000';
+const health=await fetch(base+'/api/health');assert.equal(health.status,200);
+const index=await fetch(base+'/');assert.equal(index.status,200);assert.match(await index.text(),/RehaFlow/);
+const denied=await fetch(base+'/api/patients');assert.equal(denied.status,401);
+const login=await fetch(base+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({login:'admin-test',password:'Testing-Only-Password-2026',device:'CI HTTP smoke'})});
+assert.equal(login.status,201);const {token,user}=await login.json();assert.equal(user.role,'ADMIN');
+const headers={Authorization:`Bearer ${token}`};const rooms=await fetch(base+'/api/rooms',{headers});assert.equal(rooms.status,200);assert.ok((await rooms.json()).length>0);
+assert.equal((await fetch(base+'/api/auth/logout',{method:'POST',headers})).status,201);
+assert.equal((await fetch(base+'/api/rooms',{headers})).status,401);
+console.log('HTTP smoke passed: health, SPA, JWT guard, login, database endpoint, logout revocation');

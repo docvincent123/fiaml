@@ -35,6 +35,17 @@ jobs:
           TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/quremed_test
       - name: Build local server image
         run: docker build -t quremed-local .
+      - name: Smoke test local server image
+        run: |
+          docker run -d --name quremed-smoke --network host -e DATABASE_URL=postgres://postgres:postgres@localhost:5432/quremed_test -e JWT_SECRET=ci-only-secret-at-least-thirty-two-characters -e ADMIN_PASSWORD=Testing-Only-Password-2026 -e PUBLIC_URL=http://127.0.0.1:3000 -e NODE_ENV=test quremed-local
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:3000/api/health > /dev/null; then break; fi
+            sleep 2
+          done
+          node scripts/smoke-server.mjs
+      - name: Server diagnostics
+        if: failure()
+        run: docker logs quremed-smoke || true
       - name: Package local server sources
         run: git archive --format=zip --output=QureMed-Local-Server.zip HEAD
       - uses: actions/upload-artifact@v4
@@ -56,6 +67,24 @@ jobs:
         run: |
           if (-not (Test-Path artifacts/desktop/RehaFlow.exe)) { throw 'RehaFlow.exe not produced' }
           Copy-Item README.md artifacts/desktop/README.md
+      - name: Parse local PowerShell scripts
+        shell: pwsh
+        run: |
+          Get-ChildItem scripts/*.ps1 | ForEach-Object {
+            $parseErrors = $null
+            $tokens = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$parseErrors) | Out-Null
+            if ($parseErrors.Count -gt 0) { throw ($parseErrors | Out-String) }
+          }
+      - name: Verify desktop starts
+        shell: pwsh
+        run: |
+          $desktopProcess = Start-Process -FilePath (Resolve-Path artifacts/desktop/RehaFlow.exe) -PassThru
+          Start-Sleep -Seconds 8
+          $desktopProcess.Refresh()
+          if ($desktopProcess.HasExited) { throw "RehaFlow exited during startup: $($desktopProcess.ExitCode)" }
+          Stop-Process -Id $desktopProcess.Id
+
       - uses: actions/upload-artifact@v4
         with:
           name: RehaFlow-Windows-x64
