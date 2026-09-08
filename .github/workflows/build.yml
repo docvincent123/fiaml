@@ -57,6 +57,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w web
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
@@ -76,27 +82,42 @@ jobs:
             [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$parseErrors) | Out-Null
             if ($parseErrors.Count -gt 0) { throw ($parseErrors | Out-String) }
           }
-      - name: Hosted-runner WinUI startup probe
+      - name: React desktop startup and readiness
         id: desktop-smoke
-        continue-on-error: true
         shell: pwsh
         run: |
-          $desktopProcess = Start-Process -FilePath (Resolve-Path artifacts/desktop/RehaFlow.exe) -PassThru
-          Start-Sleep -Seconds 8
-          $desktopProcess.Refresh()
-          if ($desktopProcess.HasExited) { throw "RehaFlow exited during hosted-runner startup probe: $($desktopProcess.ExitCode)" }
-          Stop-Process -Id $desktopProcess.Id
-      - name: WinUI hosted-runner diagnostics
-        if: steps.desktop-smoke.outcome == 'failure'
+          $startupLog = Join-Path $env:LOCALAPPDATA 'QureMed/startup.log'
+          if (Test-Path $startupLog) { Remove-Item $startupLog }
+          $previewProcess = Start-Process node -ArgumentList 'scripts/desktop-preview.mjs' -PassThru
+          $env:QUREMED_SERVER_URL = 'http://127.0.0.1:8787'
+          $desktopProcess = $null
+          try {
+            for ($attempt = 0; $attempt -lt 20; $attempt++) {
+              try { $null = Invoke-RestMethod "$env:QUREMED_SERVER_URL/api/health"; break } catch { Start-Sleep -Seconds 1 }
+            }
+            $desktopProcess = Start-Process -FilePath (Resolve-Path artifacts/desktop/RehaFlow.exe) -PassThru
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 45; $attempt++) {
+              Start-Sleep -Seconds 1
+              $desktopProcess.Refresh()
+              if ($desktopProcess.HasExited) { throw "RehaFlow exited during startup: $($desktopProcess.ExitCode)" }
+              if ((Test-Path $startupLog) -and (Select-String -Path $startupLog -SimpleMatch 'React UI ready' -Quiet)) { $ready = $true; break }
+            }
+            if (-not $ready) { throw 'React UI did not report readiness inside WebView2.' }
+            Write-Host 'PASS: native shell launched and real React production bundle mounted.'
+          } finally {
+            if ($desktopProcess -and -not $desktopProcess.HasExited) { Stop-Process -Id $desktopProcess.Id }
+            Stop-Process -Id $previewProcess.Id -ErrorAction SilentlyContinue
+          }
+      - name: Desktop startup diagnostics
+        if: failure()
         shell: pwsh
         run: |
-          Write-Host 'The self-contained WinUI executable was built successfully, but the non-interactive GitHub-hosted Windows session could not keep the GUI process alive.'
-          Write-Host 'This probe is diagnostic only; artifact publication remains authoritative for the desktop build.'
-          $since = (Get-Date).AddMinutes(-5)
-          Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=$since} -ErrorAction SilentlyContinue |
-            Where-Object { $_.ProviderName -in @('Application Error','Windows Error Reporting') -or $_.Message -match 'RehaFlow|Microsoft.UI.Xaml' } |
-            Select-Object -First 20 TimeCreated, ProviderName, Id, LevelDisplayName, Message |
-            Format-List | Out-String -Width 240 | Write-Host
+          $startupLog = Join-Path $env:LOCALAPPDATA 'QureMed/startup.log'
+          if (Test-Path $startupLog) { Get-Content $startupLog }
+          Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=(Get-Date).AddMinutes(-10)} -ErrorAction SilentlyContinue |
+            Where-Object { $_.ProviderName -in @('Application Error','.NET Runtime','Windows Error Reporting') } |
+            Select-Object -First 8 TimeCreated,ProviderName,Message | Format-List
           exit 0
       - uses: actions/upload-artifact@v4
         with:
