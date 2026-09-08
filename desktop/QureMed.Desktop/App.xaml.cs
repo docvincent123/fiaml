@@ -10,8 +10,11 @@ public partial class App : Application {
         } catch { }
     }
     public App() {
+        // Unpackaged XAML resources must resolve from the installation directory,
+        // including when started by a shortcut or a process in another directory.
+        Environment.CurrentDirectory = AppContext.BaseDirectory;
         AppDomain.CurrentDomain.UnhandledException += (_, e) => StartupLog(e.ExceptionObject.ToString() ?? "Unhandled exception");
-        UnhandledException += (_, e) => StartupLog(e.Exception.ToString());
+        UnhandledException += (_, e) => StartupLog(e.Message + " " + e.Exception.ToString());
         StartupLog("Initializing application resources");
         InitializeComponent();
         StartupLog("Application resources ready");

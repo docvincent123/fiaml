@@ -65,7 +65,7 @@ public sealed class MainWindow : Window {
         return new Uri(uri.GetLeftPart(UriPartial.Authority));
     }
     async void Root_Loaded(object sender,RoutedEventArgs e) {
-        if(started)return;started=true;
+        App.StartupLog("Native surface loaded");if(started)return;started=true;
         // CI or a previously configured installation can reconnect automatically.
         if(Environment.GetEnvironmentVariable("QUREMED_SERVER_URL")!=null || System.IO.File.Exists(System.IO.Path.Combine(folder,"server.txt")))await Connect();
     }
@@ -79,7 +79,7 @@ public sealed class MainWindow : Window {
         if(connecting||closing)return;connecting=true;ConnectButton.IsEnabled=false;RuntimeButton.Visibility=Visibility.Collapsed;
         ConnectionScreen.Visibility=Visibility.Visible;ShellFooter.Visibility=Visibility.Visible;Progress.Visibility=Visibility.Visible;StatusText.Text="Перевіряємо підключення до центру…";
         try {
-            var target=ValidateAddress(Address.Text);
+            var target=ValidateAddress(Address.Text);App.StartupLog("Checking server health");
             using var response=await http.GetAsync(new Uri(target,"/api/health"));
             if(!response.IsSuccessStatusCode)throw new Exception("Сервер не готовий. Перевірте запуск Start-QureMed.cmd і адресу.");
             var health=JsonNode.Parse(await response.Content.ReadAsStringAsync());
@@ -90,9 +90,10 @@ public sealed class MainWindow : Window {
             browser?.Close();BrowserHost.Children.Clear();origin=target;uiReady=false;
             var profile=System.IO.Path.Combine(folder,"WebView2",Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(target.AbsoluteUri)))[..16]);
             System.IO.Directory.CreateDirectory(profile);
+            App.StartupLog("Creating WebView2 environment");
             var environment=await CoreWebView2Environment.CreateWithOptionsAsync("",profile,new CoreWebView2EnvironmentOptions());
-            browser=new WebView2();BrowserHost.Children.Add(browser);
-            await browser.EnsureCoreWebView2Async(environment);
+            App.StartupLog("Creating WebView2 control");browser=new WebView2();BrowserHost.Children.Add(browser);
+            await browser.EnsureCoreWebView2Async(environment);App.StartupLog("WebView2 initialized");
             if(closing)return;
             var core=browser.CoreWebView2;
             core.Settings.AreDevToolsEnabled=false;core.Settings.AreDefaultContextMenusEnabled=false;
