@@ -16,14 +16,14 @@ public sealed class MainWindow : Window {
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1380, 900));
         try {
             var file = System.IO.Path.Combine(folder,"server.txt");
-            Address.Text = Environment.GetEnvironmentVariable("QUREMED_SERVER_URL") ?? (System.IO.File.Exists(file) ? System.IO.File.ReadAllText(file) : "https://192.168.1.100");
-        } catch { Address.Text = "https://192.168.1.100"; }
+            Address.Text = Environment.GetEnvironmentVariable("QUREMED_SERVER_URL") ?? (System.IO.File.Exists(file) ? System.IO.File.ReadAllText(file) : "https://192.168.1.106");
+        } catch { Address.Text = "https://192.168.1.106"; }
         Closed += (_, _) => { closing = true; browser?.Close(); http.Dispose(); };
         App.StartupLog("Connection shell ready");
     }
     // Build the small native connection surface directly; clinical screens are React.
     // This avoids a dependency on a separately deployed MainWindow XBF resource.
-    readonly TextBox Address = new() { PlaceholderText = "https://192.168.1.100" };
+    readonly TextBox Address = new() { PlaceholderText = "https://192.168.1.106" };
     readonly Button ConnectButton = new() { Content = "Підключитися" };
     readonly Button RuntimeButton = new() { Content = "Встановити Microsoft Edge WebView2", Visibility = Visibility.Collapsed };
     readonly Grid BrowserHost = new();
@@ -59,7 +59,7 @@ public sealed class MainWindow : Window {
     }
     static Uri ValidateAddress(string value) {
         if (!Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri) || !string.IsNullOrEmpty(uri.UserInfo) || uri.AbsolutePath != "/" || uri.Query.Length > 0 || uri.Fragment.Length > 0)
-            throw new Exception("Вкажіть адресу сервера без шляху, наприклад https://192.168.1.100");
+            throw new Exception("Вкажіть адресу сервера без шляху, наприклад https://192.168.1.106");
         if (uri.Scheme != "https" && !(uri.Scheme == "http" && uri.IsLoopback))
             throw new Exception("Для мережі центру потрібна адреса https://. HTTP дозволено лише для localhost.");
         return new Uri(uri.GetLeftPart(UriPartial.Authority));

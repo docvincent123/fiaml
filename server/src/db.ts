@@ -11,5 +11,6 @@ export class Database implements Queryable {
     await c.query('SELECT pg_advisory_xact_lock(780124)');
     await c.query('CREATE TABLE IF NOT EXISTS schema_migrations(version integer PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())');
     if(!(await c.query('SELECT 1 FROM schema_migrations WHERE version=1')).rows.length) await c.query(readFileSync(resolve(__dirname,'../sql/001_initial.sql'),'utf8'));
+    if(!(await c.query('SELECT 1 FROM schema_migrations WHERE version=2')).rows.length) await c.query(readFileSync(resolve(__dirname,'../sql/002_care.sql'),'utf8'));
   });}
 }

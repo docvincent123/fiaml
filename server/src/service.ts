@@ -6,7 +6,7 @@ import {allow,permissions,defaults,type Actor} from './access';
 import {hashPassword,verifyPassword} from './security';
 const uuid=z.string().uuid(), text=z.string().trim().min(1).max(200), date=z.string().datetime({offset:true});
 const optionalId=uuid.nullable().optional();
-const role=z.enum(['ADMIN','REGISTRAR','DOCTOR','NURSE']);
+const role=z.enum(['ADMIN','REGISTRAR','DOCTOR','NURSE','THERAPIST']);
 export class Clinic {
  key:Uint8Array;
  constructor(public db:Database, secret=process.env.JWT_SECRET){if(!secret||secret.length<32) throw new Error('JWT_SECRET must contain at least 32 characters');this.key=new TextEncoder().encode(secret);}

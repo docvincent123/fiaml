@@ -28,5 +28,22 @@ Write-Host ('Computer: http://localhost:' + $env:PORT) -ForegroundColor Green
 Write-Host ('Phone:    ' + $env:PUBLIC_URL) -ForegroundColor Green
 Write-Host 'Keep this window open. Press Ctrl+C to stop the server.' -ForegroundColor Yellow
 Write-Host ''
-& $npm.Source run start
-if ($LASTEXITCODE -ne 0) { throw "Server stopped with code $LASTEXITCODE." }
+$proxy = $null
+try {
+    if ($env:PUBLIC_URL.StartsWith('https://')) {
+        $caddy = Get-Command caddy.exe -ErrorAction Stop
+        $caddyConfig = Join-Path $projectRoot '.local/Caddyfile'
+        if (-not (Test-Path $caddyConfig)) { throw 'Run Enable-LanHttps.ps1 first.' }
+        if (Get-NetTCPConnection -LocalPort 443 -State Listen -ErrorAction SilentlyContinue) { throw 'Port 443 is already in use. Stop the previous RehaFlow server before starting another.' }
+        $proxy = Start-Process -FilePath $caddy.Source -ArgumentList @('run','--config',('"' + $caddyConfig + '"'),'--adapter','caddyfile') -PassThru -WindowStyle Hidden -RedirectStandardError (Join-Path $projectRoot '.local/caddy-error.log') -RedirectStandardOutput (Join-Path $projectRoot '.local/caddy.log')
+        $ca = Join-Path $projectRoot '.local/caddy-data/pki/authorities/local/root.crt'
+        for ($attempt=0; $attempt -lt 20 -and -not (Test-Path $ca); $attempt++) { Start-Sleep -Milliseconds 500; $proxy.Refresh(); if ($proxy.HasExited) { throw 'HTTPS stopped; see .local/caddy-error.log.' } }
+        if (-not (Test-Path $ca)) { throw 'Local CA certificate was not created.' }
+        Copy-Item $ca (Join-Path $projectRoot 'QureMed-Local-CA.crt') -Force
+        Write-Host 'Install QureMed-Local-CA.crt on staff phones as a CA certificate.' -ForegroundColor Cyan
+    }
+    & $npm.Source run start
+    if ($LASTEXITCODE -ne 0) { throw "Server stopped with code $LASTEXITCODE." }
+} finally {
+    if ($proxy) { $proxy.Refresh(); if (-not $proxy.HasExited) { Stop-Process -Id $proxy.Id } }
+}

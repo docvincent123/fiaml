@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import {Module} from '@nestjs/common';
 import {NestFactory} from '@nestjs/core';
 import {Database} from './db';
-import {Clinic} from './service';
+import {Care as Clinic} from './care';
 import {ApiController,PublicController,AuthGuard,CLINIC,Errors} from './http';
 import {Server} from 'socket.io';
 import helmet from 'helmet';
@@ -13,7 +13,8 @@ const db=new Database();const clinic=new Clinic(db);
 @Module({controllers:[ApiController,PublicController],providers:[{provide:CLINIC,useValue:clinic},AuthGuard]}) class App{}
 async function main(){
  await db.migrate();await clinic.bootstrap();
- const app=await NestFactory.create(App,{logger:['error','warn','log']});
+ const app=await NestFactory.create(App,{logger:['error','warn','log'],bodyParser:false});
+ app.use(express.json({limit:'8mb'}));
  // In the Compose deployment only Caddy reaches this port; trust exactly that hop.
  app.getHttpAdapter().getInstance().set('trust proxy',process.env.TRUST_PROXY==='1'?1:false);
  app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'","'unsafe-inline'"],imgSrc:["'self'",'data:','blob:'],connectSrc:["'self'",'ws:','wss:'],upgradeInsecureRequests:process.env.NODE_ENV==='production'?[]:null}},crossOriginEmbedderPolicy:false}));
