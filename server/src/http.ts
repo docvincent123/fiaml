@@ -1,4 +1,4 @@
-import {Body,CanActivate,Catch,Controller,Delete,ExecutionContext,ExceptionFilter,Get,HttpException,Inject,Param,Patch,Post,Query,Req,Res,UseGuards} from '@nestjs/common';
+import {Body,CanActivate,Catch,Controller,Delete,ExecutionContext,ExceptionFilter,ForbiddenException,Get,HttpException,Inject,Param,Patch,Post,Query,Req,Res,UseGuards} from '@nestjs/common';
 import type {Request,Response} from 'express';
 import {ZodError} from 'zod';
 import {Care as Clinic} from './care';
@@ -28,6 +28,7 @@ export class PublicController {
 @Controller('api') @UseGuards(AuthGuard)
 export class ApiController {
  constructor(@Inject(CLINIC) private c:Clinic){}
+ private adminStructure(a:Actor,action:string){if(a.role==='REGISTRAR')throw new ForbiddenException(action+' може виконувати лише адміністратор');}
  @Get('auth/me') me(@Req() r:AuthRequest){return this.c.me(r.actor);}
  @Post('auth/logout') logout(@Req() r:AuthRequest){return this.c.logout(r.actor);}
  @Post('auth/password') password(@Req() r:AuthRequest,@Body() b:any){return this.c.changePassword(r.actor,b);}
@@ -48,12 +49,12 @@ export class ApiController {
  @Post('patients/:id/readmit') readmit(@Req() r:AuthRequest,@Param('id') id:string,@Body() b:any){return this.c.readmit(r.actor,id,b);}
  @Post('patients/:id/notes') note(@Req() r:AuthRequest,@Param('id') id:string,@Body() b:any){return this.c.note(r.actor,id,b);}
  @Get('rooms') rooms(@Req() r:AuthRequest){return this.c.rooms(r.actor);}
- @Post('rooms') room(@Req() r:AuthRequest,@Body() b:any){return this.c.room(r.actor,b);}
- @Post('rooms/:id/beds') bed(@Req() r:AuthRequest,@Param('id') id:string,@Body() b:any){return this.c.bed(r.actor,id,b);}
+ @Post('rooms') room(@Req() r:AuthRequest,@Body() b:any){this.adminStructure(r.actor,'Додавання палат');return this.c.room(r.actor,b);}
+ @Post('rooms/:id/beds') bed(@Req() r:AuthRequest,@Param('id') id:string,@Body() b:any){this.adminStructure(r.actor,'Додавання ліжок');return this.c.bed(r.actor,id,b);}
  @Get('beds/qr/:uid') qr(@Req() r:AuthRequest,@Param('uid') id:string){return this.c.byQr(r.actor,id);}
  @Get('beds/qr/:uid/image') async qrImage(@Req() r:AuthRequest,@Param('uid') id:string,@Res() res:Response){allow(r.actor,'rooms.manage');await this.c.byQr(r.actor,id);const base=process.env.PUBLIC_URL;if(!base) throw new HttpException('Налаштуйте PUBLIC_URL сервера',503);res.type('image/svg+xml').send(await QRCode.toString(new URL('/bed/'+id,base).href,{type:'svg',margin:2}));}
  @Get('cabinets') cabinets(@Req() r:AuthRequest){return this.c.cabinets(r.actor);}
- @Post('cabinets') cabinet(@Req() r:AuthRequest,@Body() b:any){return this.c.cabinet(r.actor,b);}
+ @Post('cabinets') cabinet(@Req() r:AuthRequest,@Body() b:any){this.adminStructure(r.actor,'Додавання кабінетів');return this.c.cabinet(r.actor,b);}
  @Get('appointments') appointments(@Req() r:AuthRequest,@Query() q:any){return this.c.appointments(r.actor,q);}
  @Get('care/alerts') alerts(@Req() r:AuthRequest){return this.c.alerts(r.actor);}
  @Post('appointments') appointment(@Req() r:AuthRequest,@Body() b:any){return this.c.appointment(r.actor,b);}
