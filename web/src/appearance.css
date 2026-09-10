@@ -1,0 +1,85 @@
+/* Lightweight desktop finish: two bounded gradient layers; no canvas, video,
+   animation library, animated filters, layout animation or per-frame JS. */
+:root {
+  --accent: #72e5cc;
+  --muted: #9baabf;
+  --border: #263440;
+  --panel: #111c26;
+  background: #090f17;
+  color: #e8eff5;
+  --ease-out: cubic-bezier(.2,.8,.2,1);
+}
+#root { isolation: isolate; }
+.ambient { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; contain: strict; }
+.ambient i { position: absolute; width: min(540px,65vw); height: min(540px,65vw); border-radius: 50%; opacity: .55; background: radial-gradient(circle, #16574c66, #16574c00 70%); }
+.ambient i:first-child { top: 5%; right: -100px; }
+.ambient i:last-child { bottom: -180px; left: 20%; background: radial-gradient(circle,#203f7566,#203f7500 70%); }
+:root[data-effects="full"] .ambient i { animation: ambient-drift 24s ease-in-out infinite alternate; }
+:root[data-effects="full"] .ambient i:last-child { animation-delay: -12s; animation-direction: alternate-reverse; }
+@keyframes ambient-drift { from { transform: translate3d(0,0,0); opacity: .4; } to { transform: translate3d(-45px,35px,0); opacity: .75; } }
+.sidebar { background: #0c141e; border-right-color: #24323e; }
+.brand-mark { border: 1px solid #9cf2df; background: linear-gradient(145deg,#98eed8,#52bfae); box-shadow: 0 4px 18px #3ddfb51a; border-radius: 13px; }
+.sidebar nav a { border: 1px solid transparent; }
+.sidebar nav a.active, .sidebar-bottom a.active { background: linear-gradient(100deg,#1a3935,#132725); border-color: #2c5149; color: #93efda; }
+.user-mini { background: #111e29; border: 1px solid var(--border); padding: 12px; border-radius: 12px; }
+.topbar { background: #0c151fe8; }
+.top-right { gap: 14px; }
+.overview-banner { position: relative; background: linear-gradient(115deg,#15332f,#132b34 65%,#162238); border-color: #34564f; border-radius: 18px; }
+.overview-banner::after { content: ''; position: absolute; right: -80px; top: -130px; width: 360px; height: 360px; border: 1px solid #7de2cb1c; border-radius: 50%; pointer-events: none; }
+.overview-banner .pill { background: #153c33; border-color: #3b6456; letter-spacing: .07em; font-size: .65rem; }
+.stat, .quick, .panel, .task-card { background: linear-gradient(140deg,#14212c,#101923); border-color: #293844; }
+.stat { border-radius: 15px; }
+.stat strong { font-variant-numeric: tabular-nums; font-size: 2.45rem; color: #f2f7fb; }
+.stat svg { color: #88caba; }
+.quick { border-radius: 13px; }
+.quick > svg:first-child { width: 36px; height: 36px; padding: 7px; background: #1b3733; border-radius: 10px; }
+.primary { background: linear-gradient(135deg,#8cecd3,#61cdbb); border-color: #8be2cf; color: #092820; box-shadow: 0 3px 10px #0002; }
+.ghost { background: #182630; border-color: #334754; }
+.pill { border-radius: 8px; }
+.avatar { background: #253d48; color: #c2e6e0; border: 1px solid #35535d; }
+th { background: #15232e; color: #a5b7c7; }
+td, th { border-bottom-color: #263541; }
+tbody tr:hover { background: #1a2d37; }
+input, select, textarea { background: #0c1721; border-color: #344856; }
+input::placeholder, textarea::placeholder { color: #8195a8; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+button:disabled { cursor: not-allowed; }
+dialog { background: #14212c; border-color: #425965; box-shadow: 0 24px 65px #0007; margin: auto; }
+dialog::backdrop { background: #040910cc; backdrop-filter: none; }
+.note,.history { background: #192d37; }
+.login-art { background: linear-gradient(145deg,#132b31e8,#0c1822d9); }
+.login-box { padding: 28px; width: min(450px,calc(100% - 32px)); background: #121f2beb; border: 1px solid #314450; border-radius: 20px; }
+.login-form { gap: 32px; }
+.appearance-control { display: inline-flex; align-items: center; gap: 5px; color: #92c9bb; padding: 0 9px; background: #15252b; border: 1px solid #334c50; border-radius: 8px; }
+.appearance-control select { width: auto; min-height: 36px; border: 0; padding: 7px 3px; background: transparent; font-size: .75rem; color: #c4e4dc; }
+.appearance-control option { background: #14212c; color: #e8eff5; }
+.login-form > .appearance-control { align-self: flex-end; margin-right: 24px; }
+/* Transitions remain bounded and never move table rows or form fields. */
+button, a, input, select, textarea, .quick { transition: background-color 160ms, border-color 160ms, color 160ms, transform 160ms var(--ease-out); }
+@media (hover:hover) and (pointer:fine) {
+  .primary:hover:not(:disabled), .ghost:hover:not(:disabled), .danger:hover:not(:disabled), .quick:hover { transform: translateY(-2px); border-color: #719e95; }
+  .sidebar nav a:hover { color: #d9f5ef; }
+  .quick:hover > svg:last-child { transform: translate(2px,-2px); }
+}
+.quick > svg:last-child { transition: transform 160ms var(--ease-out); }
+button:active:not(:disabled), a.quick:active { transform: translateY(1px); }
+:root[data-effects="full"] .page-heading { animation: enter-surface 220ms var(--ease-out) both; }
+:root[data-effects="full"] dialog[open], :root[data-effects="full"] .toast { animation: enter-surface 180ms var(--ease-out) both; }
+@keyframes enter-surface { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+:root[data-motion="paused"] *, :root[data-motion="paused"] *::before, :root[data-motion="paused"] *::after { animation-play-state: paused !important; }
+:root[data-effects="eco"] .ambient { display: none; }
+:root[data-effects="eco"] *, :root[data-effects="eco"] *::before, :root[data-effects="eco"] *::after { animation: none !important; transition: none !important; }
+:root[data-effects="eco"] button, :root[data-effects="eco"] a.quick, :root[data-effects="eco"] .quick > svg:last-child { transform: none !important; }
+@media(prefers-reduced-motion:reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .ambient { display: none; }
+  button, a.quick, .quick > svg:last-child { transform: none !important; }
+}
+@media(max-width:560px) {
+  .top-right { gap: 7px; }
+  .appearance-control { padding: 0 5px; }
+  .appearance-control > svg { display: none; }
+  .appearance-control select { max-width: 140px; }
+  .stat strong { font-size: 1.8rem; }
+  .login-box { padding: 24px; }
+}
