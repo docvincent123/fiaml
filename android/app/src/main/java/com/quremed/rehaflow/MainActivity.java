@@ -23,6 +23,7 @@ public final class MainActivity extends Activity {
     private TextView status;
     private String origin = "";
     private boolean loadFailed;
+    private LinearLayout connectionBar;
     private ValueCallback<Uri[]> fileCallback;
     private byte[] pendingDocument;
     private static final int PICK_FILE = 11, SAVE_FILE = 12;
@@ -58,7 +59,8 @@ public final class MainActivity extends Activity {
         EditText address = new EditText(this); address.setSingleLine(true); address.setHint("https://192.168.1.106"); address.setTextColor(Color.WHITE); address.setHintTextColor(Color.LTGRAY);
         address.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_URI);
         address.setText(getPreferences(MODE_PRIVATE).getString("server","https://192.168.1.106")); root.addView(address);
-        status=text("Для локального HTTPS установіть сертифікат CA вашого центру в налаштуваннях Android.",14);root.addView(status);
+        status=text("Адреса — IP комп’ютера з сервером, наприклад 192.168.1.106. Адреса роутера та IP телефона не підходять.",14);root.addView(status);
+        Button help=button("Як установити сертифікат центру");root.addView(help);help.setOnClickListener(v->certificateHelp());
         Button connect=button("Підключитися"); root.addView(connect);
         connect.setOnClickListener(v->{try{String next=normalize(address.getText().toString());getPreferences(MODE_PRIVATE).edit().putString("server",next).apply();connect(next);}catch(Exception e){status.setText("Вкажіть HTTPS-адресу сервера без шляху, логіна чи пароля.");}});
     }
@@ -74,9 +76,9 @@ public final class MainActivity extends Activity {
     @android.annotation.SuppressLint("SetJavaScriptEnabled")
     private void connect(String server) {
         destroyBrowser();root.removeAllViews();origin=server;
-        LinearLayout toolbar=new LinearLayout(this);
+        LinearLayout toolbar=new LinearLayout(this);connectionBar=toolbar;
         Button settings=button("Сервер"),reload=button("Оновити"),print=button("Друк");
-        toolbar.addView(settings);toolbar.addView(reload);toolbar.addView(print);root.addView(toolbar);
+        toolbar.addView(settings);toolbar.addView(reload);Button help=button("Сертифікат");toolbar.addView(help);help.setOnClickListener(v->certificateHelp());root.addView(toolbar);
         status=text("Підключення…",12);root.addView(status);
         settings.setOnClickListener(v->new AlertDialog.Builder(this).setMessage("Вийти з поточного вікна та змінити сервер?").setNegativeButton("Назад",null).setPositiveButton("Змінити",(d,w)->setup()).show());
         web=new WebView(this);web.setBackgroundColor(background);root.addView(web,new LinearLayout.LayoutParams(-1,0,1));
@@ -85,12 +87,12 @@ public final class MainActivity extends Activity {
         web.addJavascriptInterface(new DocumentBridge(),"QureMedAndroid");
         reload.setOnClickListener(v->web.reload());print.setOnClickListener(v->printPage());
         web.setWebViewClient(new WebViewClient(){
-            @Override public void onPageStarted(WebView v,String url,android.graphics.Bitmap icon){loadFailed=false;status.setText("Підключення…");}
+            @Override public void onPageStarted(WebView v,String url,android.graphics.Bitmap icon){loadFailed=false;status.setVisibility(View.VISIBLE);status.setText("Підключення…");}
             @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest req){return !sameOrigin(req.getUrl().toString());}
             @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest req){String url=req.getUrl().toString();if(!sameOrigin(url)&&!url.startsWith("data:")&&!url.startsWith("blob:"+origin+"/"))return new WebResourceResponse("text/plain","UTF-8",new ByteArrayInputStream(new byte[0]));return null;}
-            @Override public void onReceivedSslError(WebView v,SslErrorHandler handler,SslError error){handler.cancel();loadFailed=true;status.setText("Сертифікат не довірений. Установіть CA центру й перевірте адресу сервера.");}
-            @Override public void onReceivedError(WebView v,WebResourceRequest req,WebResourceError error){if(req.isForMainFrame()){loadFailed=true;status.setText("Сервер недоступний. Перевірте Wi-Fi, адресу й запуск сервера. Натисніть Оновити.");}}
-            @Override public void onPageFinished(WebView v,String url){if(sameOrigin(url)&&!loadFailed){status.setText("Мережа центру · "+origin);}}
+            @Override public void onReceivedSslError(WebView v,SslErrorHandler handler,SslError error){handler.cancel();loadFailed=true;connectionBar.setVisibility(View.VISIBLE);status.setVisibility(View.VISIBLE);status.setText("Немає довіри до HTTPS сервера "+origin+". Натисніть «Сертифікат»: потрібен QureMed-Local-CA.crt з ПК сервера. Також перевірте дату й час телефона.");}
+            @Override public void onReceivedError(WebView v,WebResourceRequest req,WebResourceError error){if(req.isForMainFrame()){loadFailed=true;connectionBar.setVisibility(View.VISIBLE);status.setVisibility(View.VISIBLE);status.setText("Сервер недоступний. Перевірте Wi-Fi, адресу й запуск сервера. Натисніть Оновити.");}}
+            @Override public void onPageFinished(WebView v,String url){if(sameOrigin(url)&&!loadFailed){status.setVisibility(View.GONE);connectionBar.setVisibility(View.GONE);}}
         });
         web.setWebChromeClient(new WebChromeClient(){
             @Override public void onPermissionRequest(PermissionRequest request){request.deny();}
@@ -98,8 +100,11 @@ public final class MainActivity extends Activity {
         });
         web.loadUrl(origin);
     }
+    private void certificateHelp(){new AlertDialog.Builder(this).setTitle("Довіра до сервера центру").setMessage("1. На ПК сервера знайдіть QureMed-Local-CA.crt поряд зі Start-QureMed.\n2. Скопіюйте цей файл на телефон через USB або передайте його особисто.\n3. Налаштування Android → Безпека → Інші налаштування безпеки → Установити сертифікат → Сертифікат CA. Назви меню можуть відрізнятися.\n4. Оберіть файл центру й підтвердьте встановлення. Поверніться сюди та натисніть «Оновити».\n\nАдреса застосунку — IP ПК сервера, а не шлюз роутера. Перевірте дату й час телефона.").setNegativeButton("Закрити",null).setPositiveButton("Налаштування безпеки",(d,w)->{try{startActivity(new Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS));}catch(Exception e){Toast.makeText(this,"Відкрийте налаштування безпеки Android",Toast.LENGTH_LONG).show();}}).show();}
     private void printPage(){if(web!=null&&sameOrigin(web.getUrl())){PrintManager manager=(PrintManager)getSystemService(PRINT_SERVICE);if(manager!=null)manager.print("RehaFlow",web.createPrintDocumentAdapter("RehaFlow"),null);}}
     public final class DocumentBridge {
+        @JavascriptInterface public void settings(){runOnUiThread(()->{if(web!=null&&sameOrigin(web.getUrl()))new AlertDialog.Builder(MainActivity.this).setMessage("Вийти з робочого простору та змінити сервер?").setNegativeButton("Назад",null).setPositiveButton("Змінити",(d,w)->setup()).show();});}
+        @JavascriptInterface public void print(){runOnUiThread(()->printPage());}
         @JavascriptInterface public void download(String encoded,String mime,String filename){
             if(encoded==null||encoded.length()>7000000||!("application/pdf".equals(mime)||"image/jpeg".equals(mime)||"image/png".equals(mime)))return;
             final byte[] bytes;try{bytes=android.util.Base64.decode(encoded,android.util.Base64.DEFAULT);}catch(Exception e){return;}if(bytes.length>5*1024*1024)return;

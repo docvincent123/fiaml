@@ -29,6 +29,7 @@ export class PublicController {
 export class ApiController {
  constructor(@Inject(CLINIC) private c:Clinic){}
  @Get('auth/me') me(@Req() r:AuthRequest){return this.c.me(r.actor);}
+ @Post('auth/finish-work') finishWork(@Req() r:AuthRequest){return this.c.finishWork(r.actor);}
  @Post('auth/logout') logout(@Req() r:AuthRequest){return this.c.logout(r.actor);}
  @Post('auth/password') password(@Req() r:AuthRequest,@Body() b:any){return this.c.changePassword(r.actor,b);}
  @Get('dashboard') dashboard(@Req() r:AuthRequest){return this.c.dashboard(r.actor);}

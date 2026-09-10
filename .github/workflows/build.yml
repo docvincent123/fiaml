@@ -57,6 +57,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Verify installer configuration and recovery on Windows PowerShell
+        shell: powershell
+        run: ./scripts/Test-NoDockerConfig.ps1
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -68,6 +71,22 @@ jobs:
           dotnet-version: '8.0.x'
       - name: Publish native WinUI desktop
         run: dotnet publish desktop/QureMed.Desktop/QureMed.Desktop.csproj -c Release -r win-x64 -p:Platform=x64 --self-contained true -o artifacts/desktop
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          Copy-Item scripts/Configure-Client.ps1 artifacts/desktop/Configure-Client.ps1
+          git archive --format=zip --output=artifacts/server-source.zip HEAD
+          Expand-Archive artifacts/server-source.zip artifacts/server-source
+          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $compiler)) { throw 'Inno Setup compiler missing from runner' }
+          & $compiler installer/RehaFlow.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RehaFlow-Windows-Installer
+          path: artifacts/installer/RehaFlow-Setup-x64.exe
+          if-no-files-found: error
+          retention-days: 14
       - name: Check desktop executable
         shell: pwsh
         run: |

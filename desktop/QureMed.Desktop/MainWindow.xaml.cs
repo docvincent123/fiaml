@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.Web.WebView2.Core;
@@ -10,10 +11,14 @@ namespace QureMed.Desktop;
 public sealed class MainWindow : Window {
     readonly HttpClient http = new(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(12) };
     readonly string folder = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QureMed");
-    WebView2? browser; Uri? origin; bool connecting; bool started; bool closing; bool uiReady;
+    WebView2? browser; Uri? origin; bool connecting; bool started; bool closing; bool uiReady; bool askingClose; bool allowClose; string? finishRequest; TaskCompletionSource<string?>? finishResult;
     public MainWindow() {
         BuildShell(); Title = "RehaFlow · QureMed Industries";
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1380, 900));
+        (AppWindow.Presenter as OverlappedPresenter)?.Maximize();
+        var icon=System.IO.Path.Combine(AppContext.BaseDirectory,"Assets","RehaFlow.ico");
+        if(System.IO.File.Exists(icon))AppWindow.SetIcon(icon);
+        AppWindow.Closing+=(_,args)=>{if(allowClose)return;args.Cancel=true;if(!askingClose)_=ConfirmClose();};
         try {
             var file = System.IO.Path.Combine(folder,"server.txt");
             Address.Text = Environment.GetEnvironmentVariable("QUREMED_SERVER_URL") ?? (System.IO.File.Exists(file) ? System.IO.File.ReadAllText(file) : "https://192.168.1.106");
@@ -28,7 +33,7 @@ public sealed class MainWindow : Window {
     readonly Button RuntimeButton = new() { Content = "Встановити Microsoft Edge WebView2", Visibility = Visibility.Collapsed };
     readonly Grid BrowserHost = new();
     readonly Grid ConnectionScreen = new();
-    readonly Border ShellFooter = new();
+    readonly Border ConnectionToolbar = new();
     readonly TextBlock StatusText = new() { Text = "Вкажіть адресу локального сервера та підключіться.", FontSize = 16, TextWrapping = TextWrapping.Wrap };
     readonly ProgressBar Progress = new() { IsIndeterminate = true, Visibility = Visibility.Collapsed };
     static Microsoft.UI.Xaml.Media.SolidColorBrush Color(byte r,byte g,byte b) => new(Windows.UI.Color.FromArgb(255,r,g,b));
@@ -45,7 +50,7 @@ public sealed class MainWindow : Window {
         Address.KeyDown+=Address_KeyDown;Grid.SetColumn(Address,1);toolbar.Children.Add(Address);
         ConnectButton.Click+=Connect_Click;Grid.SetColumn(ConnectButton,2);toolbar.Children.Add(ConnectButton);
         var reload=new Button { Content="Оновити" };reload.Click+=Reload_Click;Grid.SetColumn(reload,3);toolbar.Children.Add(reload);
-        root.Children.Add(new Border { Padding=new Thickness(18,10,18,10), BorderThickness=new Thickness(0,0,0,1), BorderBrush=line, Child=toolbar });
+        ConnectionToolbar.Padding=new Thickness(18,10,18,10);ConnectionToolbar.BorderThickness=new Thickness(0,0,0,1);ConnectionToolbar.BorderBrush=line;ConnectionToolbar.Child=toolbar;root.Children.Add(ConnectionToolbar);
         Grid.SetRow(BrowserHost,1);root.Children.Add(BrowserHost);
         ConnectionScreen.Background=background;Grid.SetRow(ConnectionScreen,1);
         var panel=new StackPanel { MaxWidth=480, HorizontalAlignment=HorizontalAlignment.Center, VerticalAlignment=VerticalAlignment.Center, Spacing=20, Padding=new Thickness(24) };
@@ -53,9 +58,24 @@ public sealed class MainWindow : Window {
         panel.Children.Add(new TextBlock { Text="Ваш центр.\nЄдиний робочий простір.", FontSize=36, TextWrapping=TextWrapping.Wrap });
         StatusText.Foreground=Color(168,184,202);panel.Children.Add(StatusText);panel.Children.Add(Progress);
         RuntimeButton.Click+=Runtime_Click;panel.Children.Add(RuntimeButton);ConnectionScreen.Children.Add(panel);root.Children.Add(ConnectionScreen);
-        ShellFooter.BorderBrush=line;ShellFooter.BorderThickness=new Thickness(0,1,0,0);ShellFooter.Padding=new Thickness(18,10,18,10);
-        ShellFooter.Child=new TextBlock { Text="сервери QureMed Industries", Foreground=Color(148,162,184), FontSize=12 };
-        Grid.SetRow(ShellFooter,2);root.Children.Add(ShellFooter);root.Loaded+=Root_Loaded;Content=root;
+        root.Loaded+=Root_Loaded;Content=root;
+    }
+    async Task ConfirmClose() {
+        askingClose=true;
+        try {
+            var dialog=new ContentDialog { XamlRoot=((FrameworkElement)Content).XamlRoot, RequestedTheme=ElementTheme.Dark, Title="Завершити зміну?", Content="Так — завершити роботу й вийти. Ні — закрити програму, залишивши зміну активною. Передача пацієнтів іншому лікарю виконується окремо.", PrimaryButtonText="Так", SecondaryButtonText="Ні", CloseButtonText="Скасувати" };
+            var answer=await dialog.ShowAsync();
+            if(answer==ContentDialogResult.None)return;
+            if(answer==ContentDialogResult.Primary&&browser?.CoreWebView2!=null){
+                if(!uiReady)throw new Exception("Немає зв’язку з інтерфейсом. Завершення зміни не підтверджено.");
+                finishRequest=Guid.NewGuid().ToString();finishResult=new TaskCompletionSource<string?>();
+                browser.CoreWebView2.PostWebMessageAsJson(System.Text.Json.JsonSerializer.Serialize(new {type="quremed.finish-work",requestId=finishRequest}));
+                if(await Task.WhenAny(finishResult.Task,Task.Delay(25000))!=finishResult.Task)throw new Exception("Сервер не підтвердив завершення. Перевірте зв’язок та стан зміни.");
+                var error=await finishResult.Task;if(error!=null)throw new Exception(error);
+            }
+            allowClose=true;Close();
+        }catch(Exception ex){await new ContentDialog { XamlRoot=((FrameworkElement)Content).XamlRoot, RequestedTheme=ElementTheme.Dark, Title="Зміну не завершено", Content=ex.Message, CloseButtonText="Зрозуміло" }.ShowAsync();}
+        finally {askingClose=false;finishRequest=null;finishResult=null;}
     }
     static Uri ValidateAddress(string value) {
         if (!Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri) || !string.IsNullOrEmpty(uri.UserInfo) || uri.AbsolutePath != "/" || uri.Query.Length > 0 || uri.Fragment.Length > 0)
@@ -67,17 +87,17 @@ public sealed class MainWindow : Window {
     async void Root_Loaded(object sender,RoutedEventArgs e) {
         App.StartupLog("Native surface loaded");if(started)return;started=true;
         // CI or a previously configured installation can reconnect automatically.
-        if(Environment.GetEnvironmentVariable("QUREMED_SERVER_URL")!=null || System.IO.File.Exists(System.IO.Path.Combine(folder,"server.txt")))await Connect();
+        if(Environment.GetEnvironmentVariable("QUREMED_SERVER_URL")!=null || System.IO.File.Exists(System.IO.Path.Combine(folder,"server.txt"))){ConnectionToolbar.Visibility=Visibility.Collapsed;await Connect();}
     }
     async void Connect_Click(object sender,RoutedEventArgs e) => await Connect();
     async void Address_KeyDown(object sender,KeyRoutedEventArgs e) { if(e.Key==Windows.System.VirtualKey.Enter){e.Handled=true;await Connect();} }
     async void Reload_Click(object sender,RoutedEventArgs e) { if(connecting)return;if(browser?.CoreWebView2!=null&&origin!=null){uiReady=false;ConnectionScreen.Visibility=Visibility.Visible;StatusText.Text="Оновлюємо робочий простір…";browser.CoreWebView2.Reload();}else await Connect(); }
     async void Runtime_Click(object sender,RoutedEventArgs e) => await Windows.System.Launcher.LaunchUriAsync(new Uri("https://developer.microsoft.com/microsoft-edge/webview2/"));
-    void Failure(string text) {if(closing)return;StatusText.Text=text;Progress.Visibility=Visibility.Collapsed;ConnectionScreen.Visibility=Visibility.Visible;ShellFooter.Visibility=Visibility.Visible;}
+    void Failure(string text) {if(closing)return;StatusText.Text=text;Progress.Visibility=Visibility.Collapsed;ConnectionScreen.Visibility=Visibility.Visible;ConnectionToolbar.Visibility=Visibility.Visible;}
     bool SameOrigin(string uri) => origin!=null && Uri.TryCreate(uri,UriKind.Absolute,out var target) && target.Scheme==origin.Scheme && target.Host==origin.Host && target.Port==origin.Port;
     async Task Connect() {
         if(connecting||closing)return;connecting=true;ConnectButton.IsEnabled=false;RuntimeButton.Visibility=Visibility.Collapsed;
-        ConnectionScreen.Visibility=Visibility.Visible;ShellFooter.Visibility=Visibility.Visible;Progress.Visibility=Visibility.Visible;StatusText.Text="Перевіряємо підключення до центру…";
+        ConnectionScreen.Visibility=Visibility.Visible;Progress.Visibility=Visibility.Visible;StatusText.Text="Перевіряємо підключення до центру…";
         try {
             var target=ValidateAddress(Address.Text);App.StartupLog("Checking server health");
             using var response=await http.GetAsync(new Uri(target,"/api/health"));
@@ -108,11 +128,14 @@ public sealed class MainWindow : Window {
                 await Task.Delay(12000);
                 if(!closing&&ReferenceEquals(browser?.CoreWebView2,core)&&!uiReady)Failure("Інтерфейс не завершив завантаження. Оновіть локальний сервер і натисніть «Підключитися».");
             };
-            // One-way readiness signal only. No filesystem, command execution, or native auth bridge is exposed.
+            // Same-origin UI messages only; credentials never leave the web session.
             core.WebMessageReceived+=(_,args)=>{
                 if(!SameOrigin(args.Source))return;
-                try{var message=JsonNode.Parse(args.WebMessageAsJson);if(message?["type"]?.ToString()!="quremed.ui.ready")return;
-                    uiReady=true;ConnectionScreen.Visibility=Visibility.Collapsed;ShellFooter.Visibility=Visibility.Collapsed;Progress.Visibility=Visibility.Collapsed;App.StartupLog("React UI ready");
+                try{var message=JsonNode.Parse(args.WebMessageAsJson);var type=message?["type"]?.ToString();
+                    if(type=="quremed.server.settings"){ConnectionToolbar.Visibility=Visibility.Visible;return;}
+                    if(type=="quremed.finish-result"&&message?["requestId"]?.ToString()==finishRequest){finishResult?.TrySetResult(message?["ok"]?.GetValue<bool>()==true?null:message?["error"]?.ToString()??"Не вдалося завершити зміну.");return;}
+                    if(type!="quremed.ui.ready")return;
+                    uiReady=true;ConnectionScreen.Visibility=Visibility.Collapsed;ConnectionToolbar.Visibility=Visibility.Collapsed;Progress.Visibility=Visibility.Collapsed;App.StartupLog("React UI ready");
                 }catch{ }
             };
             System.IO.File.WriteAllText(System.IO.Path.Combine(folder,"server.txt"),target.GetLeftPart(UriPartial.Authority));
