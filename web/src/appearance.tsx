@@ -1,4 +1,5 @@
 import {createContext, useContext, useEffect, useState, type ReactNode} from 'react';
+import {createPortal} from 'react-dom';
 import {Sparkles} from 'lucide-react';
 
 type Mode = 'auto' | 'full' | 'eco';
@@ -39,7 +40,7 @@ export function AppearanceProvider({children}: {children: ReactNode}) {
       delete root.dataset.motion;
     };
   }, [mode]);
-  return <Appearance.Provider value={{mode, setMode}}>{children}</Appearance.Provider>;
+  return <Appearance.Provider value={{mode, setMode}}>{children}<UiPolicy/></Appearance.Provider>;
 }
 
 export function AppearanceControl() {
@@ -52,6 +53,43 @@ export function AppearanceControl() {
       <option value="eco">Еко · без анімацій</option>
     </select>
   </label>;
+}
+
+function UiPolicy() {
+  const [settingsGrid, setSettingsGrid] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    let lastPath = '';
+    let lastRole = '';
+    const sync = () => {
+      const path = window.location.pathname;
+      const roleText = document.querySelector('.user-mini small')?.textContent?.trim() ?? '';
+      const role = roleText === 'Реєстратура' ? 'registrar' : roleText ? 'staff' : '';
+      if (path !== lastPath) { document.documentElement.dataset.path = path; lastPath = path; }
+      if (role !== lastRole) {
+        if (role) document.documentElement.dataset.role = role; else delete document.documentElement.dataset.role;
+        lastRole = role;
+      }
+      const next = path === '/settings' ? document.querySelector<HTMLElement>('.settings-grid') : null;
+      setSettingsGrid(current => current === next ? current : next);
+    };
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(document.body, {subtree: true, childList: true, characterData: true});
+    const timer = window.setInterval(sync, 750);
+    return () => {
+      observer.disconnect();
+      window.clearInterval(timer);
+      delete document.documentElement.dataset.path;
+      delete document.documentElement.dataset.role;
+    };
+  }, []);
+  return settingsGrid ? createPortal(
+    <section className="panel padded appearance-settings-card">
+      <h2>Візуальні ефекти</h2>
+      <p className="muted">Анімації та фонові ефекти налаштовуються тільки тут.</p>
+      <AppearanceControl/>
+    </section>, settingsGrid
+  ) : null;
 }
 
 export function AmbientBackground() {
