@@ -54,6 +54,15 @@ dialog::backdrop { background: #040910cc; backdrop-filter: none; }
 .appearance-control select { width: auto; min-height: 36px; border: 0; padding: 7px 3px; background: transparent; font-size: .75rem; color: #c4e4dc; }
 .appearance-control option { background: #14212c; color: #e8eff5; }
 .login-form > .appearance-control { align-self: flex-end; margin-right: 24px; }
+/* The effects selector belongs to Settings only. */
+.topbar .appearance-control, .login-form > .appearance-control { display: none !important; }
+.appearance-settings-card .appearance-control { margin-top: 8px; }
+/* The old bottom branding/status strip is intentionally removed. */
+footer { display: none !important; }
+/* Registrar is front-desk: availability and booking stay visible; structural creation does not. */
+:root[data-role="registrar"][data-path="/rooms"] .page-heading .heading-actions .primary,
+:root[data-role="registrar"][data-path="/rooms"] .room-heading > .icon-button { display: none !important; }
+:root[data-role="registrar"][data-path="/cabinets"] .page-heading .heading-actions > .ghost { display: none !important; }
 /* Transitions remain bounded and never move table rows or form fields. */
 button, a, input, select, textarea, .quick { transition: background-color 160ms, border-color 160ms, color 160ms, transform 160ms var(--ease-out); }
 @media (hover:hover) and (pointer:fine) {
