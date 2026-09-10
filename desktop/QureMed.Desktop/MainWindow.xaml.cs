@@ -18,7 +18,7 @@ public sealed class MainWindow : Window {
         (AppWindow.Presenter as OverlappedPresenter)?.Maximize();
         var icon=System.IO.Path.Combine(AppContext.BaseDirectory,"Assets","RehaFlow.ico");
         if(System.IO.File.Exists(icon))AppWindow.SetIcon(icon);
-        AppWindow.Closing+=(_,args)=>{if(allowClose)return;args.Cancel=true;if(!askingClose)_=ConfirmClose();};
+        AppWindow.Closing+=(sender,args)=>{if(allowClose)return;args.Cancel=true;if(!askingClose)_=ConfirmClose();};
         try {
             var file = System.IO.Path.Combine(folder,"server.txt");
             Address.Text = Environment.GetEnvironmentVariable("QUREMED_SERVER_URL") ?? (System.IO.File.Exists(file) ? System.IO.File.ReadAllText(file) : "https://192.168.1.106");

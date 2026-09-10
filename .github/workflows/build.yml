@@ -81,6 +81,16 @@ jobs:
           if (-not (Test-Path $compiler)) { throw 'Inno Setup compiler missing from runner' }
           & $compiler installer/RehaFlow.iss
           if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
+      - name: Verify installer client mode
+        shell: pwsh
+        run: |
+          $installDir = Join-Path $env:RUNNER_TEMP 'RehaFlow Installer Test'
+          $installer = Start-Process artifacts/installer/RehaFlow-Setup-x64.exe -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TYPE=client',('/DIR="' + $installDir + '"')) -Wait -PassThru
+          if ($installer.ExitCode -ne 0) { throw "Installer failed: $($installer.ExitCode)" }
+          foreach ($file in @('RehaFlow.exe','RehaFlow.pri','Assets/RehaFlow.ico','Configure-Client.ps1')) {
+            if (-not (Test-Path (Join-Path $installDir $file))) { throw "Installed file missing: $file" }
+          }
+          if (Test-Path 'C:/ProgramData/QureMed/Server/.env.nodocker') { throw 'Client mode created server configuration' }
       - uses: actions/upload-artifact@v4
         with:
           name: RehaFlow-Windows-Installer
