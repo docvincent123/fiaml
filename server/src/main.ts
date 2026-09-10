@@ -20,7 +20,8 @@ async function main(){
  app.use('/api',(_req:any,res:any,next:any)=>{res.setHeader('Cache-Control','no-store');next();});
  app.useGlobalFilters(new Errors());
  // No wildcard CORS. Mobile web is served by this same server / reverse proxy.
- const io=new Server(app.getHttpServer(),{allowRequest:(req,cb)=>{const origin=req.headers.origin;cb(null,!origin||origin===process.env.PUBLIC_URL);}});
+ const allowedOrigins=new Set((process.env.ALLOWED_ORIGINS||process.env.PUBLIC_URL||'').split(',').map(value=>value.trim()).filter(Boolean));
+ const io=new Server(app.getHttpServer(),{allowRequest:(req,cb)=>{const origin=req.headers.origin;cb(null,!origin||allowedOrigins.has(origin));}});
  io.use(async(socket,next)=>{try{socket.data.actor=await clinic.authenticate(socket.handshake.auth.token??'');next();}catch{next(new Error('Unauthorized'));}});
  io.on('connection',socket=>{socket.join('changes');});
  let polling=false;
