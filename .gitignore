@@ -12,3 +12,10 @@ artifacts/
 *.log
 QureMed-Local-CA.crt
 *.tsbuildinfo
+.local/
+.backups/
+android/.gradle/
+android/**/build/
+android/local.properties
+*.jks
+*.keystore

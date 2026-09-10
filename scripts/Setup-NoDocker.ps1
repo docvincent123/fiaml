@@ -50,12 +50,12 @@ function Select-ServerIp {
         } |
         Sort-Object InterfaceMetric |
         Select-Object -ExpandProperty IPAddress -Unique
-    $suggested = $addresses | Select-Object -First 1
+    $suggested = if ('192.168.1.106' -in $addresses) { '192.168.1.106' } else { $addresses | Select-Object -First 1 }
     if ($suggested) {
         $entered = Read-Host "IPv4 this computer uses on Wi-Fi [$suggested]"
         if ([string]::IsNullOrWhiteSpace($entered)) { $entered = $suggested }
     } else {
-        $entered = Read-Host 'IPv4 this computer uses on Wi-Fi (example 192.168.1.100)'
+        $entered = Read-Host 'IPv4 this computer uses on Wi-Fi (example 192.168.1.106)'
     }
     $parsed = $null
     if (-not [Net.IPAddress]::TryParse($entered, [ref]$parsed) -or
@@ -74,6 +74,7 @@ if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
 $configPath = Join-Path $projectRoot '.env.nodocker'
 if (Test-Path $configPath) {
     Write-Host 'QureMed is already installed. Starting the local server...' -ForegroundColor Green
+    & (Join-Path $PSScriptRoot 'Enable-LanHttps.ps1')
     & (Join-Path $PSScriptRoot 'Run-NoDocker.ps1')
     exit $LASTEXITCODE
 }
@@ -153,9 +154,7 @@ if ($adminPassword.Length -lt 12 -or $adminPassword.Length -gt 128 -or $adminPas
     throw 'The administrator password must contain 12-128 characters.'
 }
 
-if (-not (Get-NetFirewallRule -DisplayName 'QureMed Local Server' -ErrorAction SilentlyContinue)) {
-    New-NetFirewallRule -DisplayName 'QureMed Local Server' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3000 -Profile Private | Out-Null
-}
+# Only the HTTPS frontend will be exposed to the local subnet.
 
 Write-Host 'Installing RehaFlow packages...'
 $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
@@ -184,6 +183,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Could not protect the local configuration file
 
 Write-Host ''
 Write-Host 'Installation completed.' -ForegroundColor Green
-Write-Host ('Open on the phone: http://' + $serverIp + ':3000') -ForegroundColor Green
+& (Join-Path $PSScriptRoot 'Enable-LanHttps.ps1') -ServerIp $serverIp
+Write-Host ('Open on the phone: https://' + $serverIp) -ForegroundColor Green
 Write-Host 'Login: admin' -ForegroundColor Green
 & (Join-Path $PSScriptRoot 'Run-NoDocker.ps1')
