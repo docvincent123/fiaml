@@ -39,7 +39,7 @@ Name: "{group}\Запустити сервер RehaFlow"; Filename: "{commonappd
 
 [Run]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Configure-Client.ps1"""; Description: "Налаштувати адресу сервера та сертифікат цього робочого місця"; Flags: postinstall skipifsilent runasoriginaluser; Components: desktop; Check: IsClient
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{commonappdata}\QureMed\Server\scripts\Install-Server.ps1"""; Description: "Встановити залежності та запустити сервер (потрібен інтернет)"; WorkingDir: "{commonappdata}\QureMed\Server"; Flags: postinstall skipifsilent nowait; Components: server
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{commonappdata}\QureMed\Server\scripts\Install-Server.ps1"""; Description: "Встановити залежності та запустити сервер (потрібен інтернет)"; WorkingDir: "{commonappdata}\QureMed\Server"; Flags: postinstall skipifsilent nowait runascurrentuser; Components: server
 Filename: "{app}\RehaFlow.exe"; Description: "Відкрити RehaFlow"; Flags: postinstall skipifsilent nowait unchecked runasoriginaluser
 
 [Code]
