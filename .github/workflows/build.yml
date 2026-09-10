@@ -57,6 +57,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Verify installer configuration and recovery on Windows PowerShell
+        shell: powershell
+        run: ./scripts/Test-NoDockerConfig.ps1
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
