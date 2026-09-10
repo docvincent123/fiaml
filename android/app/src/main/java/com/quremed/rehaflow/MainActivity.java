@@ -8,11 +8,14 @@ import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Bundle;
 import android.print.PrintManager;
+import android.security.KeyChain;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.*;
 import android.widget.*;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URI;
 import java.util.Locale;
@@ -23,9 +26,10 @@ public final class MainActivity extends Activity {
     private TextView status;
     private String origin = "";
     private boolean loadFailed;
+    private boolean sslDialogOpen;
     private ValueCallback<Uri[]> fileCallback;
     private byte[] pendingDocument;
-    private static final int PICK_FILE = 11, SAVE_FILE = 12;
+    private static final int PICK_FILE = 11, SAVE_FILE = 12, PICK_CA = 13;
     private final int background = Color.rgb(11,16,26);
 
     @Override public void onCreate(Bundle state) {
@@ -58,7 +62,8 @@ public final class MainActivity extends Activity {
         EditText address = new EditText(this); address.setSingleLine(true); address.setHint("https://192.168.1.106"); address.setTextColor(Color.WHITE); address.setHintTextColor(Color.LTGRAY);
         address.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_URI);
         address.setText(getPreferences(MODE_PRIVATE).getString("server","https://192.168.1.106")); root.addView(address);
-        status=text("Для локального HTTPS установіть сертифікат CA вашого центру в налаштуваннях Android.",14);root.addView(status);
+        status=text("Для локального HTTPS один раз установіть QureMed-Local-CA.crt із серверного комп’ютера.",14);root.addView(status);
+        Button installCa=button("Встановити CA центру");root.addView(installCa);installCa.setOnClickListener(v->pickLocalCa());
         Button connect=button("Підключитися"); root.addView(connect);
         connect.setOnClickListener(v->{try{String next=normalize(address.getText().toString());getPreferences(MODE_PRIVATE).edit().putString("server",next).apply();connect(next);}catch(Exception e){status.setText("Вкажіть HTTPS-адресу сервера без шляху, логіна чи пароля.");}});
     }
@@ -71,6 +76,30 @@ public final class MainActivity extends Activity {
     private boolean sameOrigin(String value) {
         try { URI u=new URI(value),o=new URI(origin);return "https".equalsIgnoreCase(u.getScheme())&&o.getHost().equalsIgnoreCase(u.getHost())&&(u.getPort()==-1?443:u.getPort())==(o.getPort()==-1?443:o.getPort())&&u.getUserInfo()==null; }catch(Exception e){return false;}
     }
+    private void pickLocalCa(){
+        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType("*/*");
+        try{startActivityForResult(intent,PICK_CA);}catch(Exception e){Toast.makeText(this,"Не вдалося відкрити файл сертифіката",Toast.LENGTH_LONG).show();}
+    }
+    private void installLocalCa(Uri uri){
+        try(InputStream in=getContentResolver().openInputStream(uri)){
+            if(in==null)throw new Exception("empty");
+            ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] buffer=new byte[4096];int read,total=0;
+            while((read=in.read(buffer))!=-1){total+=read;if(total>262144)throw new Exception("large");out.write(buffer,0,read);}
+            byte[] certificate=out.toByteArray();if(certificate.length==0)throw new Exception("empty");
+            Intent install=KeyChain.createInstallIntent();install.putExtra(KeyChain.EXTRA_CERTIFICATE,certificate);install.putExtra(KeyChain.EXTRA_NAME,"QureMed Local CA");startActivity(install);
+            Toast.makeText(this,"Підтвердьте встановлення CA в Android, потім поверніться в RehaFlow",Toast.LENGTH_LONG).show();
+        }catch(Exception e){Toast.makeText(this,"Не вдалося прочитати CA. Оберіть файл QureMed-Local-CA.crt",Toast.LENGTH_LONG).show();}
+    }
+    private void showCertificateHelp(){
+        if(sslDialogOpen||isFinishing())return;sslDialogOpen=true;
+        AlertDialog dialog=new AlertDialog.Builder(this)
+            .setTitle("Сертифікат центру не встановлено")
+            .setMessage("На серверному комп’ютері є файл QureMed-Local-CA.crt. Скопіюйте його на телефон, натисніть «Встановити CA» і підтвердьте встановлення в системному вікні Android. Сертифікат встановлюється один раз.")
+            .setNegativeButton("Назад",null)
+            .setPositiveButton("Встановити CA",(d,w)->pickLocalCa())
+            .create();
+        dialog.setOnDismissListener(d->sslDialogOpen=false);dialog.show();
+    }
     @android.annotation.SuppressLint("SetJavaScriptEnabled")
     private void connect(String server) {
         destroyBrowser();root.removeAllViews();origin=server;
@@ -80,17 +109,17 @@ public final class MainActivity extends Activity {
         status=text("Підключення…",12);root.addView(status);
         settings.setOnClickListener(v->new AlertDialog.Builder(this).setMessage("Вийти з поточного вікна та змінити сервер?").setNegativeButton("Назад",null).setPositiveButton("Змінити",(d,w)->setup()).show());
         web=new WebView(this);web.setBackgroundColor(background);root.addView(web,new LinearLayout.LayoutParams(-1,0,1));
-        WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setCacheMode(WebSettings.LOAD_NO_CACHE);s.setSupportMultipleWindows(false);s.setUserAgentString(s.getUserAgentString()+" RehaFlowAndroid/2.0");
+        WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setCacheMode(WebSettings.LOAD_NO_CACHE);s.setSupportMultipleWindows(false);s.setUserAgentString(s.getUserAgentString()+" RehaFlowAndroid/2.1");
         CookieManager.getInstance().setAcceptThirdPartyCookies(web,false);
         web.addJavascriptInterface(new DocumentBridge(),"QureMedAndroid");
         reload.setOnClickListener(v->web.reload());print.setOnClickListener(v->printPage());
         web.setWebViewClient(new WebViewClient(){
-            @Override public void onPageStarted(WebView v,String url,android.graphics.Bitmap icon){loadFailed=false;status.setText("Підключення…");}
+            @Override public void onPageStarted(WebView v,String url,android.graphics.Bitmap icon){loadFailed=false;status.setVisibility(View.VISIBLE);status.setText("Підключення…");}
             @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest req){return !sameOrigin(req.getUrl().toString());}
             @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest req){String url=req.getUrl().toString();if(!sameOrigin(url)&&!url.startsWith("data:")&&!url.startsWith("blob:"+origin+"/"))return new WebResourceResponse("text/plain","UTF-8",new ByteArrayInputStream(new byte[0]));return null;}
-            @Override public void onReceivedSslError(WebView v,SslErrorHandler handler,SslError error){handler.cancel();loadFailed=true;status.setText("Сертифікат не довірений. Установіть CA центру й перевірте адресу сервера.");}
-            @Override public void onReceivedError(WebView v,WebResourceRequest req,WebResourceError error){if(req.isForMainFrame()){loadFailed=true;status.setText("Сервер недоступний. Перевірте Wi-Fi, адресу й запуск сервера. Натисніть Оновити.");}}
-            @Override public void onPageFinished(WebView v,String url){if(sameOrigin(url)&&!loadFailed){status.setText("Мережа центру · "+origin);}}
+            @Override public void onReceivedSslError(WebView v,SslErrorHandler handler,SslError error){handler.cancel();loadFailed=true;status.setVisibility(View.VISIBLE);status.setText("Сертифікат центру не довірений. Установіть QureMed-Local-CA.crt один раз.");showCertificateHelp();}
+            @Override public void onReceivedError(WebView v,WebResourceRequest req,WebResourceError error){if(req.isForMainFrame()){loadFailed=true;status.setVisibility(View.VISIBLE);status.setText("Сервер недоступний. Перевірте Wi-Fi, адресу й запуск сервера. Натисніть Оновити.");}}
+            @Override public void onPageFinished(WebView v,String url){if(sameOrigin(url)&&!loadFailed){status.setText("");status.setVisibility(View.GONE);}}
         });
         web.setWebChromeClient(new WebChromeClient(){
             @Override public void onPermissionRequest(PermissionRequest request){request.deny();}
@@ -103,10 +132,15 @@ public final class MainActivity extends Activity {
         @JavascriptInterface public void download(String encoded,String mime,String filename){
             if(encoded==null||encoded.length()>7000000||!("application/pdf".equals(mime)||"image/jpeg".equals(mime)||"image/png".equals(mime)))return;
             final byte[] bytes;try{bytes=android.util.Base64.decode(encoded,android.util.Base64.DEFAULT);}catch(Exception e){return;}if(bytes.length>5*1024*1024)return;
-            runOnUiThread(()->{if(web==null||!sameOrigin(web.getUrl())||pendingDocument!=null)return;pendingDocument=bytes;Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType(mime);intent.putExtra(Intent.EXTRA_TITLE,filename.replaceAll("[\\\\/]","_"));try{startActivityForResult(intent,SAVE_FILE);}catch(Exception e){pendingDocument=null;status.setText("Не вдалося відкрити збереження файлу");}});
+            runOnUiThread(()->{if(web==null||!sameOrigin(web.getUrl())||pendingDocument!=null)return;pendingDocument=bytes;Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType(mime);intent.putExtra(Intent.EXTRA_TITLE,filename.replaceAll("[\\\\/]","_"));try{startActivityForResult(intent,SAVE_FILE);}catch(Exception e){pendingDocument=null;status.setVisibility(View.VISIBLE);status.setText("Не вдалося відкрити збереження файлу");}});
         }
     }
-    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(request==PICK_FILE&&fileCallback!=null){fileCallback.onReceiveValue(result==RESULT_OK&&data!=null?new Uri[]{data.getData()}:null);fileCallback=null;}if(request==SAVE_FILE){byte[] bytes=pendingDocument;pendingDocument=null;if(result==RESULT_OK&&data!=null&&bytes!=null){try(OutputStream out=getContentResolver().openOutputStream(data.getData())){if(out!=null)out.write(bytes);Toast.makeText(this,"Документ збережено",Toast.LENGTH_SHORT).show();}catch(Exception e){Toast.makeText(this,"Не вдалося зберегти документ",Toast.LENGTH_LONG).show();}}}}
+    @Override protected void onActivityResult(int request,int result,Intent data){
+        super.onActivityResult(request,result,data);
+        if(request==PICK_FILE&&fileCallback!=null){fileCallback.onReceiveValue(result==RESULT_OK&&data!=null?new Uri[]{data.getData()}:null);fileCallback=null;}
+        if(request==SAVE_FILE){byte[] bytes=pendingDocument;pendingDocument=null;if(result==RESULT_OK&&data!=null&&bytes!=null){try(OutputStream out=getContentResolver().openOutputStream(data.getData())){if(out!=null)out.write(bytes);Toast.makeText(this,"Документ збережено",Toast.LENGTH_SHORT).show();}catch(Exception e){Toast.makeText(this,"Не вдалося зберегти документ",Toast.LENGTH_LONG).show();}}}
+        if(request==PICK_CA&&result==RESULT_OK&&data!=null&&data.getData()!=null)installLocalCa(data.getData());
+    }
     @Override public void onBackPressed(){if(web!=null&&web.canGoBack())web.goBack();else super.onBackPressed();}
     @Override protected void onPause(){if(web!=null)web.onPause();super.onPause();}
     @Override protected void onResume(){super.onResume();if(web!=null)web.onResume();}
