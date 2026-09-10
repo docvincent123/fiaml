@@ -13,7 +13,7 @@ public sealed class MainWindow : Window {
     WebView2? browser; Uri? origin; bool connecting; bool started; bool closing; bool uiReady; bool allowClose; bool closePromptOpen; bool hasSavedServer;
     public MainWindow() {
         BuildShell(); Title = "RehaFlow · QureMed Industries";
-        try { AppWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.Maximized); }
+        try { if(AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter) presenter.Maximize(); }
         catch { AppWindow.Resize(new Windows.Graphics.SizeInt32(1380, 900)); }
         try {
             var file = System.IO.Path.Combine(folder,"server.txt");
