@@ -14,22 +14,26 @@ public sealed class MainWindow : Window {
     public MainWindow() {
         BuildShell(); Title = "RehaFlow · QureMed Industries";
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1380, 900));
+        BrandIcon.Apply(AppWindow, folder);
         try {
             var file = System.IO.Path.Combine(folder,"server.txt");
-            Address.Text = Environment.GetEnvironmentVariable("QUREMED_SERVER_URL") ?? (System.IO.File.Exists(file) ? System.IO.File.ReadAllText(file) : "https://192.168.1.106");
-        } catch { Address.Text = "https://192.168.1.106"; }
+            var configured = Environment.GetEnvironmentVariable("QUREMED_SERVER_URL") ?? (System.IO.File.Exists(file) ? System.IO.File.ReadAllText(file).Trim() : "");
+            Address.Text = string.IsNullOrWhiteSpace(configured) ? "https://192.168.1.106" : configured;
+            ConnectionToolbar.Visibility = string.IsNullOrWhiteSpace(configured) ? Visibility.Visible : Visibility.Collapsed;
+        } catch { Address.Text = "https://192.168.1.106"; ConnectionToolbar.Visibility = Visibility.Visible; }
         Closed += (_, _) => { closing = true; browser?.Close(); http.Dispose(); };
         App.StartupLog("Connection shell ready");
     }
     // Build the small native connection surface directly; clinical screens are React.
-    // This avoids a dependency on a separately deployed MainWindow XBF resource.
+    // The server address is shown on first setup or after a connection failure, not during normal work.
     readonly TextBox Address = new() { PlaceholderText = "https://192.168.1.106" };
     readonly Button ConnectButton = new() { Content = "Підключитися" };
     readonly Button RuntimeButton = new() { Content = "Встановити Microsoft Edge WebView2", Visibility = Visibility.Collapsed };
     readonly Grid BrowserHost = new();
     readonly Grid ConnectionScreen = new();
+    readonly Border ConnectionToolbar = new();
     readonly Border ShellFooter = new();
-    readonly TextBlock StatusText = new() { Text = "Вкажіть адресу локального сервера та підключіться.", FontSize = 16, TextWrapping = TextWrapping.Wrap };
+    readonly TextBlock StatusText = new() { Text = "Перший запуск: вкажіть адресу локального сервера. Після успішного підключення RehaFlow запам’ятає її.", FontSize = 16, TextWrapping = TextWrapping.Wrap };
     readonly ProgressBar Progress = new() { IsIndeterminate = true, Visibility = Visibility.Collapsed };
     static Microsoft.UI.Xaml.Media.SolidColorBrush Color(byte r,byte g,byte b) => new(Windows.UI.Color.FromArgb(255,r,g,b));
     void BuildShell() {
@@ -45,7 +49,8 @@ public sealed class MainWindow : Window {
         Address.KeyDown+=Address_KeyDown;Grid.SetColumn(Address,1);toolbar.Children.Add(Address);
         ConnectButton.Click+=Connect_Click;Grid.SetColumn(ConnectButton,2);toolbar.Children.Add(ConnectButton);
         var reload=new Button { Content="Оновити" };reload.Click+=Reload_Click;Grid.SetColumn(reload,3);toolbar.Children.Add(reload);
-        root.Children.Add(new Border { Padding=new Thickness(18,10,18,10), BorderThickness=new Thickness(0,0,0,1), BorderBrush=line, Child=toolbar });
+        ConnectionToolbar.Padding=new Thickness(18,10,18,10);ConnectionToolbar.BorderThickness=new Thickness(0,0,0,1);ConnectionToolbar.BorderBrush=line;ConnectionToolbar.Child=toolbar;
+        root.Children.Add(ConnectionToolbar);
         Grid.SetRow(BrowserHost,1);root.Children.Add(BrowserHost);
         ConnectionScreen.Background=background;Grid.SetRow(ConnectionScreen,1);
         var panel=new StackPanel { MaxWidth=480, HorizontalAlignment=HorizontalAlignment.Center, VerticalAlignment=VerticalAlignment.Center, Spacing=20, Padding=new Thickness(24) };
@@ -66,14 +71,14 @@ public sealed class MainWindow : Window {
     }
     async void Root_Loaded(object sender,RoutedEventArgs e) {
         App.StartupLog("Native surface loaded");if(started)return;started=true;
-        // CI or a previously configured installation can reconnect automatically.
+        // A successfully configured installation reconnects automatically and does not ask for the IP again.
         if(Environment.GetEnvironmentVariable("QUREMED_SERVER_URL")!=null || System.IO.File.Exists(System.IO.Path.Combine(folder,"server.txt")))await Connect();
     }
     async void Connect_Click(object sender,RoutedEventArgs e) => await Connect();
     async void Address_KeyDown(object sender,KeyRoutedEventArgs e) { if(e.Key==Windows.System.VirtualKey.Enter){e.Handled=true;await Connect();} }
     async void Reload_Click(object sender,RoutedEventArgs e) { if(connecting)return;if(browser?.CoreWebView2!=null&&origin!=null){uiReady=false;ConnectionScreen.Visibility=Visibility.Visible;StatusText.Text="Оновлюємо робочий простір…";browser.CoreWebView2.Reload();}else await Connect(); }
     async void Runtime_Click(object sender,RoutedEventArgs e) => await Windows.System.Launcher.LaunchUriAsync(new Uri("https://developer.microsoft.com/microsoft-edge/webview2/"));
-    void Failure(string text) {if(closing)return;StatusText.Text=text;Progress.Visibility=Visibility.Collapsed;ConnectionScreen.Visibility=Visibility.Visible;ShellFooter.Visibility=Visibility.Visible;}
+    void Failure(string text) {if(closing)return;StatusText.Text=text;Progress.Visibility=Visibility.Collapsed;ConnectionScreen.Visibility=Visibility.Visible;ConnectionToolbar.Visibility=Visibility.Visible;ShellFooter.Visibility=Visibility.Visible;}
     bool SameOrigin(string uri) => origin!=null && Uri.TryCreate(uri,UriKind.Absolute,out var target) && target.Scheme==origin.Scheme && target.Host==origin.Host && target.Port==origin.Port;
     async Task Connect() {
         if(connecting||closing)return;connecting=true;ConnectButton.IsEnabled=false;RuntimeButton.Visibility=Visibility.Collapsed;
@@ -101,7 +106,7 @@ public sealed class MainWindow : Window {
             core.NavigationStarting+=(_,args)=>{if(!SameOrigin(args.Uri)&&!args.Uri.StartsWith("blob:"+target.GetLeftPart(UriPartial.Authority)+"/",StringComparison.Ordinal))args.Cancel=true;};
             core.NewWindowRequested+=(_,args)=>{args.Handled=true;if(SameOrigin(args.Uri))core.Navigate(args.Uri);};
             core.PermissionRequested+=(_,args)=>{args.State=CoreWebView2PermissionState.Deny;};
-            core.ServerCertificateErrorDetected+=(_,args)=>{args.Action=CoreWebView2ServerCertificateErrorAction.Cancel;Failure("Сертифікат сервера не довірений. Встановіть QureMed-Local-CA.crt згідно з інструкцією.");};
+            core.ServerCertificateErrorDetected+=(_,args)=>{args.Action=CoreWebView2ServerCertificateErrorAction.Cancel;Failure($"HTTPS-сертифікат відхилено Windows ({args.ErrorStatus}). Якщо QureMed-Local-CA.crt вже встановлений, перевірте, що він доданий у «Довірені кореневі центри сертифікації», а IP у сертифікаті збігається з адресою сервера.");};
             core.ProcessFailed+=(_,_)=>Failure("Вікно інтерфейсу зупинилося. Натисніть «Підключитися», щоб відкрити його знову.");
             core.NavigationCompleted+=async(_,args)=>{
                 if(!args.IsSuccess){Failure("Не вдалося відкрити інтерфейс. Перевірте доступність сервера та спробуйте підключитися ще раз.");return;}
@@ -112,12 +117,14 @@ public sealed class MainWindow : Window {
             core.WebMessageReceived+=(_,args)=>{
                 if(!SameOrigin(args.Source))return;
                 try{var message=JsonNode.Parse(args.WebMessageAsJson);if(message?["type"]?.ToString()!="quremed.ui.ready")return;
-                    uiReady=true;ConnectionScreen.Visibility=Visibility.Collapsed;ShellFooter.Visibility=Visibility.Collapsed;Progress.Visibility=Visibility.Collapsed;App.StartupLog("React UI ready");
+                    uiReady=true;
+                    System.IO.Directory.CreateDirectory(folder);
+                    System.IO.File.WriteAllText(System.IO.Path.Combine(folder,"server.txt"),target.GetLeftPart(UriPartial.Authority));
+                    ConnectionToolbar.Visibility=Visibility.Collapsed;ConnectionScreen.Visibility=Visibility.Collapsed;ShellFooter.Visibility=Visibility.Collapsed;Progress.Visibility=Visibility.Collapsed;App.StartupLog("React UI ready; server address saved");
                 }catch{ }
             };
-            System.IO.File.WriteAllText(System.IO.Path.Combine(folder,"server.txt"),target.GetLeftPart(UriPartial.Authority));
             core.Navigate(target.AbsoluteUri);
-        } catch(HttpRequestException){Failure("Немає підключення. Перевірте адресу, мережу центру та довіру до QureMed-Local-CA.crt.");}
+        } catch(HttpRequestException){Failure("Немає підключення. Перевірте адресу, Wi‑Fi центру та довіру Windows до QureMed-Local-CA.crt. Якщо сертифікат уже встановлений, запустіть scripts/Trust-Local-Certificate.ps1 ще раз для цього користувача Windows.");}
           catch(TaskCanceledException){Failure("Сервер не відповідає. Перевірте, чи запущено локальний сервер.");}
           catch(Exception ex){App.StartupLog("Connection initialization: "+ex);Failure(ex.Message);if(ex.GetType().Name.Contains("WebView2Runtime"))RuntimeButton.Visibility=Visibility.Visible;}
         finally{connecting=false;if(!closing){ConnectButton.IsEnabled=true;Progress.Visibility=Visibility.Collapsed;}}
