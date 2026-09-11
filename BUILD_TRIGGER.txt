@@ -1,0 +1,3 @@
+RehaFlow build trigger
+Requested: 2026-09-11 12:19 Europe/Kyiv
+Purpose: build current Windows x64 and Android APK artifacts after the latest RehaFlow fixes.
