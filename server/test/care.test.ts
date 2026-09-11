@@ -90,3 +90,19 @@ test('Notification feed contains only eligible events and no clinical content',a
  await c.readMessage(nurse,message.id);assert.ok(!(await c.notificationFeed(nurse)).events.some(e=>e.id==='message:'+message.id));
  await c.shift(nurse,{start:false});assert.deepEqual(await c.notificationFeed(nurse),{events:[],active:false});
 });
+
+test('Operations respect roles, acknowledgements are idempotent and timeline excludes registrar clinical tasks',async()=>{
+ const p=await patient(),t=await task(p.id,{scheduled_at:new Date(Date.now()-3600000).toISOString()});
+ await c.shift(n1,{start:true});await c.shift(therapist,{start:true});
+ await assert.rejects(()=>c.taskAction(therapist,t.id,'acknowledge'));
+ await c.taskAction(n1,t.id,'acknowledge');await c.taskAction(n1,t.id,'acknowledge');
+ const listed=(await c.tasks(d1)).find((x:any)=>x.id===t.id);assert.equal(Number(listed.acknowledged_count),1);
+ const own=(await c.tasks(n1)).find((x:any)=>x.id===t.id);assert.equal(own.acknowledged_by_me,true);
+ const registrar=await actor('REGISTRAR','operationsregistrar');
+ const reg=await c.operations(registrar);assert.equal('maintenance' in reg,false);assert.equal('staff' in reg,false);
+ assert.equal(reg.metrics.some(x=>x.label==='Прострочених завдань'),false);
+ const doc=await c.operations(d1);assert.ok(doc.metrics.find(x=>x.label==='Прострочених завдань')!.value>=1);
+ assert.ok((await c.patient(d1,p.id)).timelineTasks.some((x:any)=>x.id===t.id));
+ assert.deepEqual((await c.patient(registrar,p.id)).timelineTasks,[]);
+ assert.ok('maintenance' in await c.operations(admin));
+});

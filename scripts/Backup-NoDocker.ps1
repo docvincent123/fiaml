@@ -20,7 +20,15 @@ $file = Join-Path $OutputDirectory ('quremed-' + (Get-Date -Format 'yyyyMMdd-HHm
 $previousPassword = $env:PGPASSWORD
 try {
     $env:PGPASSWORD = [Uri]::UnescapeDataString($credential[1])
-    & $dumpPath -h $uri.Host -p $uri.Port -U ([Uri]::UnescapeDataString($credential[0])) -d ($uri.AbsolutePath.TrimStart('/')) -Fc -f $file
+    & $dumpPath -h $uri.Host -p $uri.Port -U ([Uri]::UnescapeDataString($credential[0])) -d ($uri.AbsolutePath.TrimStart('/')) -Fc -f ($file + '.partial')
     if ($LASTEXITCODE -ne 0) { throw 'Backup failed; do not use the incomplete dump.' }
+    $restorePath = Join-Path (Split-Path $dumpPath -Parent) 'pg_restore.exe'
+    & $restorePath --list ($file + '.partial') | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Backup archive validation failed.' }
+    Move-Item -LiteralPath ($file + '.partial') -Destination $file
+    $status = @{completedAt=(Get-Date).ToUniversalTime().ToString('o');sha256=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash;bytes=(Get-Item -LiteralPath $file).Length}
+    $statusPath = Join-Path $projectRoot '.local/backup-status.json'
+    $status | ConvertTo-Json | Set-Content -LiteralPath ($statusPath + '.tmp') -Encoding UTF8
+    Move-Item -LiteralPath ($statusPath + '.tmp') -Destination $statusPath -Force
     Write-Host "Backup saved: $file (includes attached documents)." -ForegroundColor Green
 } finally { $env:PGPASSWORD = $previousPassword }
