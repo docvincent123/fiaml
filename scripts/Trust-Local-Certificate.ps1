@@ -1,6 +1,14 @@
 $ErrorActionPreference = 'Stop'
-$certificate = Join-Path (Split-Path $PSScriptRoot -Parent) 'QureMed-Local-CA.crt'
-if (-not (Test-Path $certificate)) { throw 'Run Setup-Local.ps1 / Enable-LanHttps.ps1 or copy QureMed-Local-CA.crt from the server first.' }
+$projectRoot = Split-Path $PSScriptRoot -Parent
+$certificate = Join-Path $projectRoot 'QureMed-Local-CA.crt'
+$currentNoDockerCa = Join-Path $projectRoot '.local\caddy-data\pki\authorities\local\root.crt'
+
+# If the no-Docker HTTPS service has regenerated its CA, always trust the current
+# one instead of an older exported copy that may still be lying in the project root.
+if (Test-Path $currentNoDockerCa) {
+    Copy-Item $currentNoDockerCa $certificate -Force
+}
+if (-not (Test-Path $certificate)) { throw 'Run Setup-Local.ps1 / Enable-LanHttps.ps1 and start the HTTPS server, or copy QureMed-Local-CA.crt from the server first.' }
 
 $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($certificate)
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
