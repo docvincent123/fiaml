@@ -165,14 +165,14 @@ Write-Host 'Building the server and React interface...'
 if ($LASTEXITCODE -ne 0) { throw "RehaFlow build failed with code $LASTEXITCODE." }
 
 $lines = @(
-    'DATABASE_URL=postgresql://quremed:' + $databasePassword + '@127.0.0.1:5432/quremed',
-    'JWT_SECRET=' + (New-HexSecret),
-    'ADMIN_LOGIN=admin',
-    'ADMIN_PASSWORD=' + $adminPassword,
-    'PUBLIC_URL=http://' + $serverIp + ':3000',
-    'ALLOWED_ORIGINS=http://' + $serverIp + ':3000,http://localhost:3000,http://127.0.0.1:3000',
-    'HOST=0.0.0.0',
-    'PORT=3000',
+    ('DATABASE_URL=postgresql://quremed:' + $databasePassword + '@127.0.0.1:5432/quremed')
+    ('JWT_SECRET=' + (New-HexSecret))
+    'ADMIN_LOGIN=admin'
+    ('ADMIN_PASSWORD=' + $adminPassword)
+    ('PUBLIC_URL=http://' + $serverIp + ':3000')
+    ('ALLOWED_ORIGINS=http://' + $serverIp + ':3000,http://localhost:3000,http://127.0.0.1:3000')
+    'HOST=0.0.0.0'
+    'PORT=3000'
     'NODE_ENV=development'
 )
 [IO.File]::WriteAllLines($configPath, $lines, (New-Object Text.UTF8Encoding($false)))
