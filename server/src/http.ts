@@ -56,6 +56,7 @@ export class ApiController {
  @Get('cabinets') cabinets(@Req() r:AuthRequest){return this.c.cabinets(r.actor);}
  @Post('cabinets') cabinet(@Req() r:AuthRequest,@Body() b:any){return this.c.cabinet(r.actor,b);}
  @Get('appointments') appointments(@Req() r:AuthRequest,@Query() q:any){return this.c.appointments(r.actor,q);}
+ @Get('care/notification-feed') notificationFeed(@Req() r:AuthRequest){return this.c.notificationFeed(r.actor);}
  @Get('care/alerts') alerts(@Req() r:AuthRequest){return this.c.alerts(r.actor);}
  @Post('appointments') appointment(@Req() r:AuthRequest,@Body() b:any){return this.c.appointment(r.actor,b);}
  @Patch('appointments/:id') appointmentStatus(@Req() r:AuthRequest,@Param('id') id:string,@Body() b:any){return this.c.appointmentStatus(r.actor,id,b);}

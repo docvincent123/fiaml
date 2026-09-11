@@ -23,6 +23,9 @@ public final class MainActivity extends Activity {
     private TextView status;
     private String origin = "";
     private boolean loadFailed;
+    private String alertToken="",alertUser="";
+    private boolean activityVisible=false;
+    private String destination="/";
     private LinearLayout connectionBar;
     private ValueCallback<Uri[]> fileCallback;
     private byte[] pendingDocument;
@@ -31,6 +34,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        destination=safeDestination(getIntent().getStringExtra("destination"));
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
         root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setBackgroundColor(background);
         root.setOnApplyWindowInsetsListener((v,insets) -> {
@@ -53,7 +57,7 @@ public final class MainActivity extends Activity {
         if(web!=null){root.removeView(web);web.stopLoading();web.removeJavascriptInterface("QureMedAndroid");web.destroy();web=null;}
     }
     private void setup() {
-        destroyBrowser(); root.removeAllViews(); origin="";
+        clearAlertSession();destroyBrowser(); root.removeAllViews(); origin="";
         root.addView(text("QureMed Industries",18)); root.addView(text("RehaFlow\nВаш центр у телефоні",30));
         root.addView(text("Підключіться до Wi-Fi центру. Введіть адресу сервера один раз — застосунок її запам’ятає.",16));
         EditText address = new EditText(this); address.setSingleLine(true); address.setHint("https://192.168.1.106"); address.setTextColor(Color.WHITE); address.setHintTextColor(Color.LTGRAY);
@@ -75,8 +79,8 @@ public final class MainActivity extends Activity {
     }
     @android.annotation.SuppressLint("SetJavaScriptEnabled")
     private void connect(String server) {
-        destroyBrowser();root.removeAllViews();origin=server;
-        LinearLayout toolbar=new LinearLayout(this);connectionBar=toolbar;
+        clearAlertSession();destroyBrowser();root.removeAllViews();origin=server;
+        LinearLayout toolbar=new LinearLayout(this);connectionBar=toolbar;toolbar.setVisibility(View.GONE);
         Button settings=button("Сервер"),reload=button("Оновити"),print=button("Друк");
         toolbar.addView(settings);toolbar.addView(reload);Button help=button("Сертифікат");toolbar.addView(help);help.setOnClickListener(v->certificateHelp());root.addView(toolbar);
         status=text("Підключення…",12);root.addView(status);
@@ -98,11 +102,29 @@ public final class MainActivity extends Activity {
             @Override public void onPermissionRequest(PermissionRequest request){request.deny();}
             @Override public boolean onShowFileChooser(WebView view,ValueCallback<Uri[]> callback,FileChooserParams params){if(fileCallback!=null)fileCallback.onReceiveValue(null);fileCallback=callback;Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType("*/*");intent.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/pdf","image/jpeg","image/png"});try{startActivityForResult(intent,PICK_FILE);}catch(Exception e){callback.onReceiveValue(null);fileCallback=null;}return true;}
         });
-        web.loadUrl(origin);
+        web.loadUrl(origin+destination);
     }
+    private static String safeDestination(String path){return path!=null&&java.util.Arrays.asList("/","/pool","/messages","/tasks","/handovers","/settings").contains(path)?path:"/";}
+    @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);destination=safeDestination(intent.getStringExtra("destination"));if(web!=null&&sameOrigin(web.getUrl()))web.loadUrl(origin+destination);}
+    private void clearAlertSession(){alertToken="";alertUser="";stopService(new Intent(this,ShiftAlertsService.class));getSystemService(android.app.NotificationManager.class).cancelAll();}
+    private void startAlerts(boolean ask){
+        if(!activityVisible||alertToken.isEmpty()||!getSharedPreferences("shift-alerts",MODE_PRIVATE).getBoolean("enabled",true))return;
+        if(android.os.Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED){if(ask)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},25);return;}
+        if(!getSystemService(android.app.NotificationManager.class).areNotificationsEnabled()){ShiftAlertsService.state="Дозвольте сповіщення в налаштуваннях Android.";return;}
+        Intent service=new Intent(this,ShiftAlertsService.class).putExtra("server",origin).putExtra("token",alertToken).putExtra("user",alertUser);
+        try{startForegroundService(service);}catch(Exception e){ShiftAlertsService.state="Фонова перевірка недоступна. Відкрийте застосунок і спробуйте ще раз.";}
+    }
+    @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results){super.onRequestPermissionsResult(request,permissions,results);if(request==25&&results.length>0&&results[0]==android.content.pm.PackageManager.PERMISSION_GRANTED)startAlerts(false);}
     private void certificateHelp(){new AlertDialog.Builder(this).setTitle("Довіра до сервера центру").setMessage("1. На ПК сервера знайдіть QureMed-Local-CA.crt поряд зі Start-QureMed.\n2. Скопіюйте цей файл на телефон через USB або передайте його особисто.\n3. Налаштування Android → Безпека → Інші налаштування безпеки → Установити сертифікат → Сертифікат CA. Назви меню можуть відрізнятися.\n4. Оберіть файл центру й підтвердьте встановлення. Поверніться сюди та натисніть «Оновити».\n\nАдреса застосунку — IP ПК сервера, а не шлюз роутера. Перевірте дату й час телефона.").setNegativeButton("Закрити",null).setPositiveButton("Налаштування безпеки",(d,w)->{try{startActivity(new Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS));}catch(Exception e){Toast.makeText(this,"Відкрийте налаштування безпеки Android",Toast.LENGTH_LONG).show();}}).show();}
     private void printPage(){if(web!=null&&sameOrigin(web.getUrl())){PrintManager manager=(PrintManager)getSystemService(PRINT_SERVICE);if(manager!=null)manager.print("RehaFlow",web.createPrintDocumentAdapter("RehaFlow"),null);}}
     public final class DocumentBridge {
+        @JavascriptInterface public void session(String token,String user){runOnUiThread(()->{if(web==null||!sameOrigin(web.getUrl())||token==null||token.length()>8192)return;alertToken=token;alertUser=user;startAlerts(true);});}
+        @JavascriptInterface public void clearSession(){runOnUiThread(()->clearAlertSession());}
+        @JavascriptInterface public void enableAlerts(){runOnUiThread(()->{getSharedPreferences("shift-alerts",MODE_PRIVATE).edit().putBoolean("enabled",true).apply();startAlerts(true);});}
+        @JavascriptInterface public void disableAlerts(){runOnUiThread(()->{getSharedPreferences("shift-alerts",MODE_PRIVATE).edit().putBoolean("enabled",false).apply();stopService(new Intent(MainActivity.this,ShiftAlertsService.class));ShiftAlertsService.state="Фонові сповіщення вимкнено";});}
+        @JavascriptInterface public String notificationStatus(){try{return new org.json.JSONObject().put("running",ShiftAlertsService.running).put("message",ShiftAlertsService.state).toString();}catch(Exception e){return "{}";}}
+        @JavascriptInterface public void testAlert(){runOnUiThread(()->ShiftAlertsService.alert(MainActivity.this,"RehaFlow","Перевірка звуку сповіщень","/settings"));}
+        @JavascriptInterface public void alertSettings(){runOnUiThread(()->{Intent intent=new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,getPackageName());try{startActivity(intent);}catch(Exception e){Toast.makeText(MainActivity.this,"Відкрийте дозволи сповіщень RehaFlow у налаштуваннях Android",Toast.LENGTH_LONG).show();}});}
         @JavascriptInterface public void settings(){runOnUiThread(()->{if(web!=null&&sameOrigin(web.getUrl()))new AlertDialog.Builder(MainActivity.this).setMessage("Вийти з робочого простору та змінити сервер?").setNegativeButton("Назад",null).setPositiveButton("Змінити",(d,w)->setup()).show();});}
         @JavascriptInterface public void print(){runOnUiThread(()->printPage());}
         @JavascriptInterface public void download(String encoded,String mime,String filename){
@@ -113,7 +135,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(request==PICK_FILE&&fileCallback!=null){fileCallback.onReceiveValue(result==RESULT_OK&&data!=null?new Uri[]{data.getData()}:null);fileCallback=null;}if(request==SAVE_FILE){byte[] bytes=pendingDocument;pendingDocument=null;if(result==RESULT_OK&&data!=null&&bytes!=null){try(OutputStream out=getContentResolver().openOutputStream(data.getData())){if(out!=null)out.write(bytes);Toast.makeText(this,"Документ збережено",Toast.LENGTH_SHORT).show();}catch(Exception e){Toast.makeText(this,"Не вдалося зберегти документ",Toast.LENGTH_LONG).show();}}}}
     @Override public void onBackPressed(){if(web!=null&&web.canGoBack())web.goBack();else super.onBackPressed();}
-    @Override protected void onPause(){if(web!=null)web.onPause();super.onPause();}
-    @Override protected void onResume(){super.onResume();if(web!=null)web.onResume();}
+    @Override protected void onPause(){activityVisible=false;if(web!=null)web.onPause();super.onPause();}
+    @Override protected void onResume(){super.onResume();activityVisible=true;if(web!=null)web.onResume();if(!ShiftAlertsService.running)startAlerts(false);}
     @Override protected void onDestroy(){destroyBrowser();super.onDestroy();}
 }

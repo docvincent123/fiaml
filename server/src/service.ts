@@ -25,11 +25,12 @@ export class Clinic {
    await c.query('INSERT INTO login_attempts(key) VALUES($1) ON CONFLICT DO NOTHING',[b.login.toLowerCase()]);
    const attempt=(await c.query('SELECT * FROM login_attempts WHERE key=$1 FOR UPDATE',[b.login.toLowerCase()])).rows[0];
    if(attempt.blocked_until && new Date(attempt.blocked_until)>new Date()) return null;
-   const u=(await c.query('SELECT * FROM users WHERE login=$1 AND active',[b.login.toLowerCase()])).rows[0];
+   const u=(await c.query('SELECT * FROM users WHERE login=$1 AND active FOR UPDATE',[b.login.toLowerCase()])).rows[0];
    const valid=await verifyPassword(b.password,u?.password_hash??'00000000000000000000000000000000:'+ '00'.repeat(64));
    if(!u||!valid){await c.query("UPDATE login_attempts SET failures=CASE WHEN window_at<now()-interval '15 minutes' THEN 1 ELSE failures+1 END, blocked_until=CASE WHEN failures>=4 AND window_at>=now()-interval '15 minutes' THEN now()+interval '15 minutes' ELSE NULL END, window_at=CASE WHEN window_at<now()-interval '15 minutes' THEN now() ELSE window_at END WHERE key=$1",[b.login.toLowerCase()]);return null;}
    await c.query('DELETE FROM login_attempts WHERE key=$1',[b.login.toLowerCase()]);
    const s=(await c.query("INSERT INTO sessions(user_id,device,ip,expires_at) VALUES($1,$2,$3,now()+interval '8 hours') RETURNING id",[u.id,b.device,ip])).rows[0];
+   if(u.role!=='ADMIN'&&!(await c.query('SELECT id FROM shifts WHERE user_id=$1 AND starts_at<=now() AND ends_at>now()',[u.id])).rows.length){await c.query("INSERT INTO shifts(user_id,ends_at) VALUES($1,now()+interval '12 hours')",[u.id]);await this.audit(c,{id:u.id} as Actor,'shift.started.auto',u.id);}
    await this.audit(c,null,'session.login',s.id);
    return {u,s};
   });
@@ -72,7 +73,7 @@ export class Clinic {
    await this.audit(c,a,'user.saved',id);return {id};
   });
  }
- async shift(a:Actor,input:any){allow(a,'tasks.work');const b=z.object({start:z.boolean()}).parse(input);
+ async shift(a:Actor,input:any){if(a.role==='ADMIN')throw new ForbiddenException('Адміністратору не потрібна робоча зміна');const b=z.object({start:z.boolean()}).parse(input);
   await this.db.tx(async c=>{await c.query('SELECT id FROM users WHERE id=$1 FOR UPDATE',[a.id]);if(b.start){if(!await this.onShift(a,c)) await c.query("INSERT INTO shifts(user_id,ends_at) VALUES($1,now()+interval '12 hours')",[a.id]);}else{
    if((await c.query("SELECT 1 FROM tasks WHERE taken_by=$1 AND status='IN_PROGRESS'",[a.id])).rows.length) throw new ConflictException('Спочатку завершіть або поверніть свої завдання');
    await c.query('UPDATE shifts SET ends_at=now() WHERE user_id=$1 AND ends_at>now()',[a.id]);

@@ -5,6 +5,7 @@ import {readFileSync} from 'node:fs';
 import {PGlite} from '@electric-sql/pglite';
 import {Care} from '../src/care';
 import {Database} from '../src/db';
+import {hashPassword} from '../src/security';
 import {permissions,type Actor} from '../src/access';
 let c:Care,db:Database,close:()=>Promise<void>,admin:Actor,d1:Actor,d2:Actor,d3:Actor,n1:Actor,n2:Actor,therapist:Actor;
 async function actor(role:string,name:string):Promise<Actor>{const u=(await db.query('INSERT INTO users(name,login,password_hash,role,specialty) VALUES($1,$2,$3,$4,$5) RETURNING *',[name,'care-'+name,'not-a-login-hash',role,'Тест'])).rows[0];return {id:u.id,name,role,specialty:'Тест',permissions:permissions(u),sid:crypto.randomUUID()};}
@@ -62,4 +63,30 @@ test('Finish work refuses owned tasks and preserves shift until work is returned
  const p=await patient();const t=await task(p.id);await c.taskAction(worker,t.id,'claim',{});
  await assert.rejects(()=>c.finishWork(worker));assert.equal(await c.onShift(worker),true);
  await c.taskAction(worker,t.id,'release',{});await c.finishWork(worker);assert.equal(await c.onShift(worker),false);
+});
+
+test('Successful login starts one shift for every staff role, never for admin',async()=>{
+ const password='Automatic-Shift-Test-Password';const hash=await hashPassword(password);
+ for(const role of ['REGISTRAR','DOCTOR','NURSE','THERAPIST','ADMIN']){
+  const a=await actor(role,'autoshift-'+role.toLowerCase());await db.query('UPDATE users SET password_hash=$1 WHERE id=$2',[hash,a.id]);
+  const credentials={login:'care-autoshift-'+role.toLowerCase(),password,device:'test-phone'};
+  await c.login(credentials,'127.0.0.1');await c.login(credentials,'127.0.0.1');
+  const count=Number((await db.query('SELECT count(*) FROM shifts WHERE user_id=$1 AND ends_at>now()',[a.id])).rows[0].count);
+  assert.equal(count,role==='ADMIN'?0:1);if(role!=='ADMIN'){await c.shift(a,{start:false});assert.equal(await c.onShift(a),false);}
+ }
+ const bad=await actor('NURSE','no-login-shift');await assert.rejects(()=>c.login({login:'care-no-login-shift',password:'wrong'},'127.0.0.1'));assert.equal(await c.onShift(bad),false);
+});
+test('Notification feed contains only eligible events and no clinical content',async()=>{
+ const nurse=await actor('NURSE','notification-nurse'),other=await actor('NURSE','notification-other'),rehab=await actor('THERAPIST','notification-rehab');
+ await c.shift(nurse,{start:true});await c.shift(other,{start:true});await c.shift(rehab,{start:true});await c.shift(d1,{start:true});await c.shift(d2,{start:true});
+ const p=await patient(),t=await task(p.id),rt=await task(p.id,{executor_role:'THERAPIST'});
+ const message=await c.message(admin,{recipient_id:nurse.id,body:'Private message text',patient_id:p.id});
+ const feed=await c.notificationFeed(nurse);assert.ok(feed.events.some(e=>e.id.startsWith('task:'+t.id)));assert.ok(feed.events.some(e=>e.id==='message:'+message.id));
+ assert.ok(!feed.events.some(e=>e.id.startsWith('task:'+rt.id)));assert.ok(!JSON.stringify(feed).includes(p.name));assert.ok(!JSON.stringify(feed).includes('Private message text'));
+ assert.ok(!(await c.notificationFeed(other)).events.some(e=>e.id==='message:'+message.id));
+ await c.taskAction(other,t.id,'claim',{});assert.ok(!(await c.notificationFeed(nurse)).events.some(e=>e.id.startsWith('task:'+t.id)));
+ await c.taskAction(other,t.id,'complete',{identity_confirmed:true,outcome:'Completed'});
+ assert.ok((await c.notificationFeed(d1)).events.some(e=>e.id==='result:'+t.id));assert.ok(!(await c.notificationFeed(d2)).events.some(e=>e.id==='result:'+t.id));
+ await c.readMessage(nurse,message.id);assert.ok(!(await c.notificationFeed(nurse)).events.some(e=>e.id==='message:'+message.id));
+ await c.shift(nurse,{start:false});assert.deepEqual(await c.notificationFeed(nurse),{events:[],active:false});
 });
