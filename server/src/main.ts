@@ -4,13 +4,14 @@ import {NestFactory} from '@nestjs/core';
 import {Database} from './db';
 import {Care as Clinic} from './care';
 import {ApiController,PublicController,AuthGuard,CLINIC,Errors} from './http';
+import {DischargeController} from './discharge';
 import {Server} from 'socket.io';
 import helmet from 'helmet';
 import express from 'express';
 import {existsSync} from 'node:fs';
 import {resolve} from 'node:path';
 const db=new Database();const clinic=new Clinic(db);
-@Module({controllers:[ApiController,PublicController],providers:[{provide:CLINIC,useValue:clinic},AuthGuard]}) class App{}
+@Module({controllers:[ApiController,PublicController,DischargeController],providers:[{provide:CLINIC,useValue:clinic},AuthGuard]}) class App{}
 async function main(){
  await db.migrate();await clinic.bootstrap();
  const app=await NestFactory.create(App,{logger:['error','warn','log'],bodyParser:false});
