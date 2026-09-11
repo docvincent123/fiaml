@@ -3,6 +3,7 @@ package com.quremed.rehaflow;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.net.Uri;
 import android.net.http.SslError;
@@ -26,7 +27,10 @@ public final class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileCallback;
     private byte[] pendingDocument;
     private static final int PICK_FILE = 11, SAVE_FILE = 12;
+    private static final String PREFS = "rehaflow_settings";
     private final int background = Color.rgb(11,16,26);
+
+    private SharedPreferences prefs() { return getSharedPreferences(PREFS, MODE_PRIVATE); }
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -37,7 +41,13 @@ public final class MainActivity extends Activity {
             return insets;
         });
         setContentView(root);
-        String saved = getPreferences(MODE_PRIVATE).getString("server", "");
+
+        // Migrate the address saved by older builds, then use one stable preference store.
+        String saved = prefs().getString("server", "");
+        if (saved.isEmpty()) {
+            String legacy = getPreferences(MODE_PRIVATE).getString("server", "");
+            if (!legacy.isEmpty()) { prefs().edit().putString("server", legacy).apply(); saved = legacy; }
+        }
         if (saved.isEmpty()) setup(); else {
             try { connect(normalize(saved)); } catch(Exception e) { setup(); }
         }
@@ -54,13 +64,13 @@ public final class MainActivity extends Activity {
     private void setup() {
         destroyBrowser(); root.removeAllViews(); origin="";
         root.addView(text("QureMed Industries",18)); root.addView(text("RehaFlow\nВаш центр у телефоні",30));
-        root.addView(text("Підключіться до Wi-Fi центру. Введіть адресу сервера один раз — застосунок її запам’ятає.",16));
+        root.addView(text("Перший запуск: підключіться до Wi-Fi центру та введіть адресу сервера. Після успішного підключення застосунок запам’ятає її і надалі відкриватиметься автоматично.",16));
         EditText address = new EditText(this); address.setSingleLine(true); address.setHint("https://192.168.1.106"); address.setTextColor(Color.WHITE); address.setHintTextColor(Color.LTGRAY);
         address.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_URI);
-        address.setText(getPreferences(MODE_PRIVATE).getString("server","https://192.168.1.106")); root.addView(address);
-        status=text("Для локального HTTPS установіть сертифікат CA вашого центру в налаштуваннях Android.",14);root.addView(status);
+        address.setText(prefs().getString("server","https://192.168.1.106")); root.addView(address);
+        status=text("Якщо центр використовує локальний HTTPS, установіть QureMed-Local-CA.crt саме як CA-сертифікат. RehaFlow не вимикає перевірку TLS.",14);root.addView(status);
         Button connect=button("Підключитися"); root.addView(connect);
-        connect.setOnClickListener(v->{try{String next=normalize(address.getText().toString());getPreferences(MODE_PRIVATE).edit().putString("server",next).apply();connect(next);}catch(Exception e){status.setText("Вкажіть HTTPS-адресу сервера без шляху, логіна чи пароля.");}});
+        connect.setOnClickListener(v->{try{String next=normalize(address.getText().toString());connect(next);}catch(Exception e){status.setText("Вкажіть HTTPS-адресу сервера без шляху, логіна чи пароля.");}});
     }
     static String normalize(String value) throws Exception {
         String s=value.trim();if(!s.contains("://"))s="https://"+s;
@@ -71,6 +81,20 @@ public final class MainActivity extends Activity {
     private boolean sameOrigin(String value) {
         try { URI u=new URI(value),o=new URI(origin);return "https".equalsIgnoreCase(u.getScheme())&&o.getHost().equalsIgnoreCase(u.getHost())&&(u.getPort()==-1?443:u.getPort())==(o.getPort()==-1?443:o.getPort())&&u.getUserInfo()==null; }catch(Exception e){return false;}
     }
+    private String sslMessage(SslError error) {
+        switch(error.getPrimaryError()) {
+            case SslError.SSL_UNTRUSTED:
+                return "Android не довіряє сертифікату сервера. Установіть QureMed-Local-CA.crt як CA-сертифікат, потім повністю закрийте й відкрийте RehaFlow.";
+            case SslError.SSL_IDMISMATCH:
+                return "Сертифікат виданий для іншої IP-адреси. Перевірте IP сервера; якщо IP змінювався, заново налаштуйте локальний HTTPS для поточної адреси.";
+            case SslError.SSL_EXPIRED:
+            case SslError.SSL_NOTYETVALID:
+            case SslError.SSL_DATE_INVALID:
+                return "Помилка дати HTTPS-сертифіката. Перевірте автоматичні дату й час на телефоні та сервері, потім перезапустіть локальний HTTPS.";
+            default:
+                return "HTTPS-сертифікат відхилено Android. Перевірте CA-сертифікат, IP сервера і дату/час. Код TLS: "+error.getPrimaryError();
+        }
+    }
     @android.annotation.SuppressLint("SetJavaScriptEnabled")
     private void connect(String server) {
         destroyBrowser();root.removeAllViews();origin=server;
@@ -78,7 +102,7 @@ public final class MainActivity extends Activity {
         Button settings=button("Сервер"),reload=button("Оновити"),print=button("Друк");
         toolbar.addView(settings);toolbar.addView(reload);toolbar.addView(print);root.addView(toolbar);
         status=text("Підключення…",12);root.addView(status);
-        settings.setOnClickListener(v->new AlertDialog.Builder(this).setMessage("Вийти з поточного вікна та змінити сервер?").setNegativeButton("Назад",null).setPositiveButton("Змінити",(d,w)->setup()).show());
+        settings.setOnClickListener(v->new AlertDialog.Builder(this).setMessage("Змінити адресу сервера? Поточна адреса залишиться збереженою, доки нове підключення не буде успішним.").setNegativeButton("Назад",null).setPositiveButton("Змінити",(d,w)->setup()).show());
         web=new WebView(this);web.setBackgroundColor(background);root.addView(web,new LinearLayout.LayoutParams(-1,0,1));
         WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setCacheMode(WebSettings.LOAD_NO_CACHE);s.setSupportMultipleWindows(false);s.setUserAgentString(s.getUserAgentString()+" RehaFlowAndroid/2.0");
         CookieManager.getInstance().setAcceptThirdPartyCookies(web,false);
@@ -88,9 +112,9 @@ public final class MainActivity extends Activity {
             @Override public void onPageStarted(WebView v,String url,android.graphics.Bitmap icon){loadFailed=false;status.setText("Підключення…");}
             @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest req){return !sameOrigin(req.getUrl().toString());}
             @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest req){String url=req.getUrl().toString();if(!sameOrigin(url)&&!url.startsWith("data:")&&!url.startsWith("blob:"+origin+"/"))return new WebResourceResponse("text/plain","UTF-8",new ByteArrayInputStream(new byte[0]));return null;}
-            @Override public void onReceivedSslError(WebView v,SslErrorHandler handler,SslError error){handler.cancel();loadFailed=true;status.setText("Сертифікат не довірений. Установіть CA центру й перевірте адресу сервера.");}
+            @Override public void onReceivedSslError(WebView v,SslErrorHandler handler,SslError error){handler.cancel();loadFailed=true;status.setText(sslMessage(error));}
             @Override public void onReceivedError(WebView v,WebResourceRequest req,WebResourceError error){if(req.isForMainFrame()){loadFailed=true;status.setText("Сервер недоступний. Перевірте Wi-Fi, адресу й запуск сервера. Натисніть Оновити.");}}
-            @Override public void onPageFinished(WebView v,String url){if(sameOrigin(url)&&!loadFailed){status.setText("Мережа центру · "+origin);}}
+            @Override public void onPageFinished(WebView v,String url){if(sameOrigin(url)&&!loadFailed){prefs().edit().putString("server",origin).apply();status.setText("Підключено · "+origin);}}
         });
         web.setWebChromeClient(new WebChromeClient(){
             @Override public void onPermissionRequest(PermissionRequest request){request.deny();}
