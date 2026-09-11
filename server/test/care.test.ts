@@ -106,3 +106,13 @@ test('Operations respect roles, acknowledgements are idempotent and timeline exc
  assert.deepEqual((await c.patient(registrar,p.id)).timelineTasks,[]);
  assert.ok('maintenance' in await c.operations(admin));
 });
+
+test('Discharge summary preserves clinician fields and separates admissions',async()=>{
+ const p=await patient();
+ const summary=await c.entry(d1,p.id,{kind:'DISCHARGE',body:'Підсумок',data:{diagnosis:'Тестовий діагноз',treatment_summary:'Проведене лікування',discharge_condition:'Стан описано',recommendations:'Рекомендації лікаря',follow_up:'Контроль'}});
+ assert.equal(summary.data.treatment_summary,'Проведене лікування');
+ await assert.rejects(()=>c.entry(n1,p.id,{kind:'DISCHARGE',body:'Не дозволено',data:{recommendations:'',follow_up:''}}));
+ await c.discharge(admin,p.id);
+ const archived=await c.patient({...d1,permissions:[...d1.permissions,'archive.read']},p.id);
+ assert.equal(archived.entries.find((e:any)=>e.id===summary.id).data.diagnosis,'Тестовий діагноз');
+});

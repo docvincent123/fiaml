@@ -1,7 +1,7 @@
 [Setup]
 AppId={{65B64984-5079-44FB-A2C8-A15648715486}
 AppName=RehaFlow
-AppVersion=2.3
+AppVersion=2.3.1
 AppPublisher=QureMed Industries
 DefaultDirName={autopf}\QureMed\RehaFlow
 DefaultGroupName=RehaFlow

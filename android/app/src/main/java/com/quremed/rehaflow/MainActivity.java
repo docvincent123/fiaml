@@ -86,7 +86,7 @@ public final class MainActivity extends Activity {
         status=text("Підключення…",12);root.addView(status);
         settings.setOnClickListener(v->new AlertDialog.Builder(this).setMessage("Вийти з поточного вікна та змінити сервер?").setNegativeButton("Назад",null).setPositiveButton("Змінити",(d,w)->setup()).show());
         web=new WebView(this);web.setBackgroundColor(background);root.addView(web,new LinearLayout.LayoutParams(-1,0,1));
-        WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setCacheMode(WebSettings.LOAD_NO_CACHE);s.setSupportMultipleWindows(false);s.setUserAgentString(s.getUserAgentString()+" RehaFlowAndroid/2.0");
+        WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setCacheMode(WebSettings.LOAD_NO_CACHE);s.setSupportMultipleWindows(false);s.setUserAgentString(s.getUserAgentString()+" RehaFlowAndroid/2.3.1");
         CookieManager.getInstance().setAcceptThirdPartyCookies(web,false);
         web.addJavascriptInterface(new DocumentBridge(),"QureMedAndroid");
         reload.setOnClickListener(v->web.reload());print.setOnClickListener(v->printPage());
@@ -94,8 +94,8 @@ public final class MainActivity extends Activity {
             @Override public void onPageStarted(WebView v,String url,android.graphics.Bitmap icon){loadFailed=false;status.setVisibility(View.VISIBLE);status.setText("Підключення…");}
             @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest req){return !sameOrigin(req.getUrl().toString());}
             @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest req){String url=req.getUrl().toString();if(!sameOrigin(url)&&!url.startsWith("data:")&&!url.startsWith("blob:"+origin+"/"))return new WebResourceResponse("text/plain","UTF-8",new ByteArrayInputStream(new byte[0]));return null;}
-            @Override public void onReceivedSslError(WebView v,SslErrorHandler handler,SslError error){handler.cancel();loadFailed=true;connectionBar.setVisibility(View.VISIBLE);status.setVisibility(View.VISIBLE);status.setText("Немає довіри до HTTPS сервера "+origin+". Натисніть «Сертифікат»: потрібен QureMed-Local-CA.crt з ПК сервера. Також перевірте дату й час телефона.");}
-            @Override public void onReceivedError(WebView v,WebResourceRequest req,WebResourceError error){if(req.isForMainFrame()){loadFailed=true;connectionBar.setVisibility(View.VISIBLE);status.setVisibility(View.VISIBLE);status.setText("Сервер недоступний. Перевірте Wi-Fi, адресу й запуск сервера. Натисніть Оновити.");}}
+            @Override public void onReceivedSslError(WebView v,SslErrorHandler handler,SslError error){handler.cancel();loadFailed=true;connectionBar.setVisibility(View.VISIBLE);status.setVisibility(View.VISIBLE);status.setText(tlsExplanation(error));}
+            @Override public void onReceivedError(WebView v,WebResourceRequest req,WebResourceError error){if(req.isForMainFrame()&&!loadFailed){loadFailed=true;connectionBar.setVisibility(View.VISIBLE);status.setVisibility(View.VISIBLE);status.setText("Сервер недоступний. Перевірте Wi-Fi, адресу й запуск сервера. Натисніть Оновити.");}}
             @Override public void onPageFinished(WebView v,String url){if(sameOrigin(url)&&!loadFailed){status.setVisibility(View.GONE);connectionBar.setVisibility(View.GONE);}}
         });
         web.setWebChromeClient(new WebChromeClient(){
@@ -115,9 +115,29 @@ public final class MainActivity extends Activity {
         try{startForegroundService(service);}catch(Exception e){ShiftAlertsService.state="Фонова перевірка недоступна. Відкрийте застосунок і спробуйте ще раз.";}
     }
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results){super.onRequestPermissionsResult(request,permissions,results);if(request==25&&results.length>0&&results[0]==android.content.pm.PackageManager.PERMISSION_GRANTED)startAlerts(false);}
+    private String tlsExplanation(SslError error){
+        String reason;
+        switch(error.getPrimaryError()){
+            case SslError.SSL_IDMISMATCH: reason="Адреса не збігається із сертифікатом. Введіть IP ПК сервера, для якого створено HTTPS, а не 192.168.1.1 (роутер).";break;
+            case SslError.SSL_EXPIRED: reason="Сертифікат прострочений. Перевірте дату телефона й сервера та запустіть сервер для оновлення сертифіката.";break;
+            case SslError.SSL_NOTYETVALID: reason="Сертифікат ще не чинний. Перевірте дату й час телефона та сервера.";break;
+            case SslError.SSL_UNTRUSTED: reason="Android не довіряє центру сертифікації. Потрібен актуальний QureMed-Local-CA.crt саме з поточної папки сервера, встановлений як CA у тому самому профілі Android, де працює застосунок. Сертифікат Wi-Fi або старого сервера не підходить.";break;
+            default: reason="Не вдалося перевірити HTTPS-сертифікат. Перевірте адресу, час і актуальний CA сервера.";
+        }
+        return reason+"\nСервер: "+origin+"\nКод TLS: "+error.getPrimaryError()+" · APK 2.3.1\nПісля встановлення CA повністю закрийте застосунок і відкрийте знову.";
+    }
     private void certificateHelp(){new AlertDialog.Builder(this).setTitle("Довіра до сервера центру").setMessage("1. На ПК сервера знайдіть QureMed-Local-CA.crt поряд зі Start-QureMed.\n2. Скопіюйте цей файл на телефон через USB або передайте його особисто.\n3. Налаштування Android → Безпека → Інші налаштування безпеки → Установити сертифікат → Сертифікат CA. Назви меню можуть відрізнятися.\n4. Оберіть файл центру й підтвердьте встановлення. Поверніться сюди та натисніть «Оновити».\n\nАдреса застосунку — IP ПК сервера, а не шлюз роутера. Перевірте дату й час телефона.").setNegativeButton("Закрити",null).setPositiveButton("Налаштування безпеки",(d,w)->{try{startActivity(new Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS));}catch(Exception e){Toast.makeText(this,"Відкрийте налаштування безпеки Android",Toast.LENGTH_LONG).show();}}).show();}
     private void printPage(){if(web!=null&&sameOrigin(web.getUrl())){PrintManager manager=(PrintManager)getSystemService(PRINT_SERVICE);if(manager!=null)manager.print("RehaFlow",web.createPrintDocumentAdapter("RehaFlow"),null);}}
     public final class DocumentBridge {
+        @JavascriptInterface public synchronized String deviceInfo(){
+            try{
+                android.content.SharedPreferences prefs=getSharedPreferences("device-identity",MODE_PRIVATE);
+                String id=prefs.getString("installation_id","");
+                if(id.isEmpty()){id=java.util.UUID.randomUUID().toString();if(!prefs.edit().putString("installation_id",id).commit())return "{}";}
+                android.content.pm.PackageInfo info=getPackageManager().getPackageInfo(getPackageName(),0);
+                return new org.json.JSONObject().put("id",id).put("model",android.os.Build.MANUFACTURER+" "+android.os.Build.MODEL).put("android",android.os.Build.VERSION.RELEASE).put("version",info.versionName).put("package",getPackageName()).toString();
+            }catch(Exception e){return "{}";}
+        }
         @JavascriptInterface public void session(String token,String user){runOnUiThread(()->{if(web==null||!sameOrigin(web.getUrl())||token==null||token.length()>8192)return;alertToken=token;alertUser=user;startAlerts(true);});}
         @JavascriptInterface public void clearSession(){runOnUiThread(()->clearAlertSession());}
         @JavascriptInterface public void enableAlerts(){runOnUiThread(()->{getSharedPreferences("shift-alerts",MODE_PRIVATE).edit().putBoolean("enabled",true).apply();startAlerts(true);});}
