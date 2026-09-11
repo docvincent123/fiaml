@@ -1,0 +1,6 @@
+@media print {
+  body.printing-discharge > .rehaflow-discharge-sheet,
+  body.printing-discharge > .rehaflow-discharge-sheet * {
+    visibility: visible !important;
+  }
+}
