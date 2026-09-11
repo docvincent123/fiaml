@@ -124,6 +124,7 @@ public final class MainActivity extends Activity {
     }
     private void printPage(){if(web!=null&&sameOrigin(web.getUrl())){PrintManager manager=(PrintManager)getSystemService(PRINT_SERVICE);if(manager!=null)manager.print("RehaFlow",web.createPrintDocumentAdapter("RehaFlow"),null);}}
     public final class DocumentBridge {
+        @JavascriptInterface public void print(){runOnUiThread(()->printPage());}
         @JavascriptInterface public void download(String encoded,String mime,String filename){
             if(encoded==null||encoded.length()>7000000||!("application/pdf".equals(mime)||"image/jpeg".equals(mime)||"image/png".equals(mime)))return;
             final byte[] bytes;try{bytes=android.util.Base64.decode(encoded,android.util.Base64.DEFAULT);}catch(Exception e){return;}if(bytes.length>5*1024*1024)return;

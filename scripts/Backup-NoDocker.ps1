@@ -20,7 +20,7 @@ $file = Join-Path $OutputDirectory ('quremed-' + (Get-Date -Format 'yyyyMMdd-HHm
 $previousPassword = $env:PGPASSWORD
 try {
     $env:PGPASSWORD = [Uri]::UnescapeDataString($credential[1])
-    & $dumpPath -h $uri.Host -p $uri.Port -U ([Uri]::UnescapeDataString($credential[0])) -d $uri.AbsolutePath.TrimStart('/') -Fc -f $file
+    & $dumpPath -h $uri.Host -p $uri.Port -U ([Uri]::UnescapeDataString($credential[0])) -d ($uri.AbsolutePath.TrimStart('/')) -Fc -f $file
     if ($LASTEXITCODE -ne 0) { throw 'Backup failed; do not use the incomplete dump.' }
     Write-Host "Backup saved: $file (includes attached documents)." -ForegroundColor Green
 } finally { $env:PGPASSWORD = $previousPassword }
