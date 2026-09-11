@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $configPath = Join-Path $projectRoot '.env.nodocker'
 if (-not (Test-Path $configPath)) { throw 'Install the local database first with Start-QureMed-Without-Docker.cmd.' }
+& (Join-Path $PSScriptRoot 'Repair-NoDockerConfig.ps1') -ConfigPath $configPath
 $settings = [ordered]@{}
 foreach ($line in [IO.File]::ReadAllLines($configPath)) {
     $split = $line.IndexOf('=')

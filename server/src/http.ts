@@ -22,15 +22,17 @@ export class Errors implements ExceptionFilter {
 @Controller('api')
 export class PublicController {
  constructor(@Inject(CLINIC) private clinic:Clinic){}
- @Get('health') async health(){await this.clinic.db.query('SELECT 1');return {status:'ok',brand:'QureMed Industries'};}
+ @Get('health') async health(){await this.clinic.db.query('SELECT 1');return {status:'ok',brand:'QureMed Industries',version:'2.3',apiMajor:1};}
  @Post('auth/login') login(@Body() b:any,@Req() r:Request){return this.clinic.login(b,r.ip??'unknown');}
 }
 @Controller('api') @UseGuards(AuthGuard)
 export class ApiController {
  constructor(@Inject(CLINIC) private c:Clinic){}
  @Get('auth/me') me(@Req() r:AuthRequest){return this.c.me(r.actor);}
+ @Post('auth/finish-work') finishWork(@Req() r:AuthRequest){return this.c.finishWork(r.actor);}
  @Post('auth/logout') logout(@Req() r:AuthRequest){return this.c.logout(r.actor);}
  @Post('auth/password') password(@Req() r:AuthRequest,@Body() b:any){return this.c.changePassword(r.actor,b);}
+ @Get('operations') operations(@Req() r:AuthRequest){return this.c.operations(r.actor);}
  @Get('dashboard') dashboard(@Req() r:AuthRequest){return this.c.dashboard(r.actor);}
  @Get('users') users(@Req() r:AuthRequest){return this.c.users(r.actor);}
  @Get('staff') staff(@Req() r:AuthRequest){return this.c.staff(r.actor);}
@@ -55,6 +57,7 @@ export class ApiController {
  @Get('cabinets') cabinets(@Req() r:AuthRequest){return this.c.cabinets(r.actor);}
  @Post('cabinets') cabinet(@Req() r:AuthRequest,@Body() b:any){return this.c.cabinet(r.actor,b);}
  @Get('appointments') appointments(@Req() r:AuthRequest,@Query() q:any){return this.c.appointments(r.actor,q);}
+ @Get('care/notification-feed') notificationFeed(@Req() r:AuthRequest){return this.c.notificationFeed(r.actor);}
  @Get('care/alerts') alerts(@Req() r:AuthRequest){return this.c.alerts(r.actor);}
  @Post('appointments') appointment(@Req() r:AuthRequest,@Body() b:any){return this.c.appointment(r.actor,b);}
  @Patch('appointments/:id') appointmentStatus(@Req() r:AuthRequest,@Param('id') id:string,@Body() b:any){return this.c.appointmentStatus(r.actor,id,b);}

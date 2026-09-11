@@ -18,7 +18,7 @@ async function main(){
  // In the Compose deployment only Caddy reaches this port; trust exactly that hop.
  app.getHttpAdapter().getInstance().set('trust proxy',process.env.TRUST_PROXY==='1'?1:false);
  app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'","'unsafe-inline'"],imgSrc:["'self'",'data:','blob:'],connectSrc:["'self'",'ws:','wss:'],upgradeInsecureRequests:process.env.NODE_ENV==='production'?[]:null}},crossOriginEmbedderPolicy:false}));
- app.use('/api',(_req:any,res:any,next:any)=>{res.setHeader('Cache-Control','no-store');next();});
+ app.use('/api',(_req:any,res:any,next:any)=>{res.setHeader('Cache-Control','no-store');res.setHeader('X-RehaFlow-API','1');if(_req.headers['x-rehaflow-api']&&_req.headers['x-rehaflow-api']!=='1'){res.status(409).json({message:'Версії застосунку та сервера несумісні. Оновіть програму.'});return;}next();});
  app.useGlobalFilters(new Errors());
  // No wildcard CORS. Mobile web is served by this same server / reverse proxy.
  const allowedOrigins=new Set((process.env.ALLOWED_ORIGINS||process.env.PUBLIC_URL||'').split(',').map(value=>value.trim()).filter(Boolean));

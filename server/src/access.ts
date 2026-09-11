@@ -1,12 +1,12 @@
 import {ForbiddenException} from '@nestjs/common';
 export const defaults:Record<string,string[]>={
  ADMIN:['dashboard','patients.read','patients.manage','rooms.manage','archive.read','cabinets.manage','tasks.read','users.manage','sessions.manage','audit.read'],
- REGISTRAR:['dashboard','patients.read','patients.manage','rooms.manage','archive.read','cabinets.manage','tasks.read'],
+ REGISTRAR:['dashboard','patients.read','patients.manage','rooms.read','archive.read','appointments.read','appointments.manage'],
  DOCTOR:['dashboard','patients.read','notes.write','tasks.create','tasks.read','appointments.read'],
  NURSE:['dashboard','tasks.work','appointments.read','qr.read','patients.read','observations.write','messages.use','shift.handover'],
  THERAPIST:['dashboard','patients.read','tasks.work','appointments.read','qr.read','rehab.write','messages.use','shift.handover']
 };
-defaults.ADMIN.push('documents.manage','messages.use');
+defaults.ADMIN.push('documents.manage','messages.use','messages.send','rooms.read','appointments.read','appointments.manage');
 defaults.REGISTRAR.push('documents.manage','messages.use');
 defaults.DOCTOR.push('handover.manage','observations.write','clinical.write','rehab.write','documents.manage','messages.use');
 export type Actor={id:string;name:string;role:string;specialty:string;permissions:string[];sid:string};

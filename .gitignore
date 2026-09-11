@@ -19,3 +19,5 @@ android/**/build/
 android/local.properties
 *.jks
 *.keystore
+
+/desktop/QureMed.Desktop/Assets/RehaFlow.ico
