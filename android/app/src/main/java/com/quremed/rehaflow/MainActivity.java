@@ -23,7 +23,7 @@ public final class MainActivity extends Activity {
     private TextView status;
     private String origin = "";
     private boolean loadFailed;
-    private boolean nativeWorkspace=false, nativeSeeded=false;
+    private boolean nativeWorkspace=false, nativeSeeded=false, nativeAuthSeen=false;
     private String alertToken="",alertUser="";
     private boolean activityVisible=false;
     private String destination="/";
@@ -59,6 +59,7 @@ public final class MainActivity extends Activity {
         if(web!=null){root.removeView(web);web.stopLoading();web.removeJavascriptInterface("QureMedAndroid");web.destroy();web=null;}
     }
     private void setup() {
+        if(nativeWorkspace){startActivity(new Intent(this,com.quremed.rehaflow.nativeui.NativeActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra("destination","/settings"));finish();return;}
         clearAlertSession();destroyBrowser(); root.removeAllViews(); origin="";
         root.addView(text("QureMed Industries",18)); root.addView(text("RehaFlow\nВаш центр у телефоні",30));
         root.addView(text("Підключіться до Wi-Fi центру. Введіть адресу сервера один раз — застосунок її запам’ятає.",16));
@@ -146,8 +147,13 @@ public final class MainActivity extends Activity {
                 return new org.json.JSONObject().put("id",id).put("model",android.os.Build.MANUFACTURER+" "+android.os.Build.MODEL).put("android",android.os.Build.VERSION.RELEASE).put("version",info.versionName).put("package",getPackageName()).toString();
             }catch(Exception e){return "{}";}
         }
-        @JavascriptInterface public void session(String token,String user){runOnUiThread(()->{if(web==null||!sameOrigin(web.getUrl())||token==null||token.length()>8192)return;alertToken=token;alertUser=user;if(nativeWorkspace){NativeSession.token=token;NativeSession.userId=user;}startAlerts(true);});}
-        @JavascriptInterface public void clearSession(){runOnUiThread(()->{if(nativeWorkspace&&nativeSeeded&&!alertToken.isEmpty())NativeSession.clear();clearAlertSession();});}
+        @JavascriptInterface public void syncAuth(String token,String user){runOnUiThread(()->{
+            if(!nativeWorkspace||!nativeSeeded||web==null||!sameOrigin(web.getUrl())||token==null||token.length()>8192)return;
+            if(!token.isEmpty()&&user!=null&&!user.isEmpty()){nativeAuthSeen=true;NativeSession.token=token;NativeSession.userId=user;}
+            else if(nativeAuthSeen)NativeSession.clear();
+        });}
+        @JavascriptInterface public void session(String token,String user){runOnUiThread(()->{if(web==null||!sameOrigin(web.getUrl())||token==null||token.length()>8192)return;alertToken=token;alertUser=user;startAlerts(true);});}
+        @JavascriptInterface public void clearSession(){runOnUiThread(()->{clearAlertSession();});}
         @JavascriptInterface public void enableAlerts(){runOnUiThread(()->{getSharedPreferences("shift-alerts",MODE_PRIVATE).edit().putBoolean("enabled",true).apply();startAlerts(true);});}
         @JavascriptInterface public void disableAlerts(){runOnUiThread(()->{getSharedPreferences("shift-alerts",MODE_PRIVATE).edit().putBoolean("enabled",false).apply();stopService(new Intent(MainActivity.this,ShiftAlertsService.class));ShiftAlertsService.state="Фонові сповіщення вимкнено";});}
         @JavascriptInterface public String notificationStatus(){try{return new org.json.JSONObject().put("running",ShiftAlertsService.running).put("message",ShiftAlertsService.state).toString();}catch(Exception e){return "{}";}}

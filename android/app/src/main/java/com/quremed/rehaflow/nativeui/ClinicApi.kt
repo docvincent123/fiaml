@@ -14,7 +14,7 @@ class ApiFailure(val status: Int, message: String) : Exception(message)
 object ClinicApi {
     fun normalize(value: String): String {
         val raw = value.trim().let { if (it.contains("://")) it else "https://$it" }
-        val u = URI(raw)
+        val u = try { URI(raw) } catch (e: java.net.URISyntaxException) { throw IllegalArgumentException("Некоректна адреса сервера") }
         require(u.scheme.equals("https", true) && u.host != null && u.userInfo == null &&
             u.query == null && u.fragment == null && (u.path.isNullOrEmpty() || u.path == "/") &&
             (u.port == -1 || u.port in 1..65535)) { "Вкажіть HTTPS-адресу ПК сервера без шляху та пароля." }

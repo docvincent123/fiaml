@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -111,7 +112,7 @@ class NativeActivity : ComponentActivity() {
             val wide=maxWidth>=840.dp
             Row(Modifier.fillMaxSize()){
                 if(wide)NavigationRail { Image(painterResource(R.drawable.rehaflow_icon),null,Modifier.padding(16.dp).size(44.dp));nav.forEach { d->NavigationRailItem(selected=m.page==d.key,onClick={m.select(d.key)},icon={Icon(d.icon,d.title)},label={Text(d.title)}) } }
-                Scaffold(modifier=Modifier.weight(1f),bottomBar={if(!wide)NavigationBar{nav.forEach{d->NavigationBarItem(selected=m.page==d.key,onClick={m.select(d.key)},icon={Icon(d.icon,d.title)},label={Text(d.title)},alwaysShowLabel=false)}}){padding->
+                Scaffold(modifier=Modifier.weight(1f),bottomBar={if(!wide)NavigationBar{nav.forEach{d->NavigationBarItem(selected=m.page==d.key,onClick={m.select(d.key)},icon={Icon(d.icon,d.title)},label={Text(d.title)},alwaysShowLabel=false)}}}){padding->
                     Column(Modifier.fillMaxSize().padding(padding).padding(horizontal=if(wide)28.dp else 16.dp)){
                         Row(Modifier.fillMaxWidth().padding(vertical=14.dp),verticalAlignment=Alignment.CenterVertically){
                             Image(painterResource(R.drawable.rehaflow_icon),null,Modifier.size(36.dp));Spacer(Modifier.width(12.dp))
@@ -146,7 +147,7 @@ class NativeActivity : ComponentActivity() {
         LazyColumn(verticalArrangement=Arrangement.spacedBy(14.dp),contentPadding=PaddingValues(bottom=24.dp)){
             item{InfoCard("Ваш профіль",m.user?.s("name") ?: "",roles[m.user?.s("role")] ?: "")}
             item{InfoCard("Цей пристрій",Build.MANUFACTURER+" "+Build.MODEL,"Android ${Build.VERSION.RELEASE}\nRehaFlow ${info.versionName}\nКод установлення: $identity\nКод зміниться після очищення даних або перевстановлення.")}
-            item{Card{Column(Modifier.padding(18.dp)){Text("Сповіщення",style=MaterialTheme.typography.titleMedium);Row(verticalAlignment=Alignment.CenterVertically){Text("Звук і нові завдання",Modifier.weight(1f));Switch(alerts,{alerts=it;getSharedPreferences("shift-alerts",MODE_PRIVATE).edit().putBoolean("enabled",it).apply();if(it)onAlerts() else stopAlerts()})};Text(ShiftAlertsService.state);TextButton(onClick={runCatching{startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,packageName))}}){Text("Звук і дозволи Android")}}}
+            item{Card{Column(Modifier.padding(18.dp)){Text("Сповіщення",style=MaterialTheme.typography.titleMedium);Row(verticalAlignment=Alignment.CenterVertically){Text("Звук і нові завдання",Modifier.weight(1f));Switch(alerts,{alerts=it;getSharedPreferences("shift-alerts",MODE_PRIVATE).edit().putBoolean("enabled",it).apply();if(it)onAlerts() else stopAlerts()})};Text(ShiftAlertsService.state);TextButton(onClick={runCatching{startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,packageName))}}){Text("Звук і дозволи Android")}}}}
             item{InfoCard("З’єднання",NativeSession.server,"Списки перевіряються кожні 5 секунд, поки застосунок відкритий. Останній зв’язок: ${m.synchronizedAt.ifEmpty{"—"}}")}
             item{CertificateHelp();OutlinedButton(enabled=!m.busy,onClick=onServer){Text("Вийти та змінити сервер")}}
             item{OutlinedButton(onClick={workspace("/settings")}){Text("Пароль та інші налаштування")}}
@@ -213,6 +214,7 @@ class NativeActivity : ComponentActivity() {
 }
 private val taskStatuses=mapOf("OPEN" to "У пулі","IN_PROGRESS" to "У роботі","COMPLETED" to "Закрито","CANCELLED" to "Скасовано")
 @Composable private fun Tasks(m:ClinicModel,open:(String)->Unit){
+    var prescribing by remember {mutableStateOf(false)}
     var filter by remember {mutableStateOf("OPEN")};var selected by remember {mutableStateOf<JSONObject?>(null)}
     val rows=(m.data as? JSONArray)?.objects() ?: emptyList()
     Column {
@@ -221,7 +223,7 @@ private val taskStatuses=mapOf("OPEN" to "У пулі","IN_PROGRESS" to "У ро
             FilterChip(selected=filter=="IN_PROGRESS",onClick={filter="IN_PROGRESS"},label={Text("У роботі")})
             FilterChip(selected=filter=="ALL",onClick={filter="ALL"},label={Text("Усі")})
         }
-        if(m.can("tasks.create"))TextButton(onClick={open("/tasks")}){Icon(Icons.Outlined.AddCircleOutline,null);Text("Нове призначення")}
+        if(m.can("tasks.create"))TextButton(onClick={prescribing=true}){Icon(Icons.Outlined.AddCircleOutline,null);Text("Нове призначення")}
         if(m.can("tasks.work")&&m.user?.optBoolean("onShift")!=true)Button(enabled=!m.busy,onClick={m.write("/shift",JSONObject().put("start",true))}){Text("Почати зміну")}
         LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp),contentPadding=PaddingValues(bottom=24.dp)){
             val visible=rows.filter{filter=="ALL"||it.s("status")==filter}
@@ -244,6 +246,7 @@ private val taskStatuses=mapOf("OPEN" to "У пулі","IN_PROGRESS" to "У ро
             item{OutlinedButton(onClick={open(if(m.can("tasks.work"))"/pool" else "/tasks")}){Text("Передача зміни та всі дії")}}
         }
     }
+    if(prescribing)Prescription(m){prescribing=false}
     selected?.let{t->
         var outcome by remember(t.s("id")){mutableStateOf("")};var confirmed by remember(t.s("id")){mutableStateOf(false)};var action by remember(t.s("id")){mutableStateOf("complete")}
         AlertDialog(onDismissRequest={if(!m.busy)selected=null},title={Text("Результат виконання")},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
@@ -271,4 +274,53 @@ private fun localTime(value:String):String=runCatching{java.time.OffsetDateTime.
             }
         }}
     }
+}
+
+@Composable private fun Prescription(m:ClinicModel,close:()->Unit){
+    var patients by remember {mutableStateOf(emptyList<JSONObject>())};var selected by remember {mutableStateOf<JSONObject?>(null)}
+    var query by remember {mutableStateOf("")};var loadError by remember {mutableStateOf("")}
+    var description by remember {mutableStateOf("")};var medication by remember {mutableStateOf("")}
+    var dose by remember {mutableStateOf("")};var unit by remember {mutableStateOf("")};var route by remember {mutableStateOf("")}
+    var kind by remember {mutableStateOf("Догляд")};var executor by remember {mutableStateOf("NURSE")}
+    var count by remember {mutableStateOf("1")};var interval by remember {mutableStateOf("24")}
+    var scheduled by remember {mutableStateOf(java.time.ZonedDateTime.now().withSecond(0).withNano(0))}
+    var reviewing by remember {mutableStateOf(false)}
+    val context=LocalContext.current
+    LaunchedEffect(query){delay(300);try{patients=(ClinicApi.request("/patients?q="+java.net.URLEncoder.encode(query,"UTF-8")) as JSONArray).objects();loadError=""}catch(e:Exception){loadError=e.message ?: "Помилка пошуку"}}
+    AlertDialog(onDismissRequest={if(!m.busy)close()},title={Text(if(reviewing)"Перевірте призначення" else "Нове призначення")},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
+        if(reviewing){
+            Text(selected?.s("name") ?: "",fontWeight=FontWeight.Bold);Text("Дата народження: ${selected?.s("birth_date")?.take(10)}")
+            Text("$kind • ${roles[executor]}\n$description")
+            if(medication.isNotBlank())Text("$medication\n$dose $unit • $route")
+            Text("Початок: ${scheduled.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))}\nКількість: $count • інтервал: $interval год")
+        }else{
+            if(selected==null){
+                OutlinedTextField(query,{if(it.length<=200)query=it},label={Text("Знайти пацієнта")},singleLine=true,modifier=Modifier.fillMaxWidth())
+                if(loadError.isNotEmpty())ErrorCard(loadError)
+                patients.take(8).forEach{p->TextButton(onClick={selected=p},modifier=Modifier.fillMaxWidth()){Text("${p.s("name")} • ${p.s("birth_date").take(10)}")}}
+                Text("Уточніть пошук, якщо потрібної картки немає серед перших результатів.",style=MaterialTheme.typography.bodySmall)
+            }else{Text(selected!!.s("name"),fontWeight=FontWeight.Bold);TextButton(onClick={selected=null}){Text("Інший пацієнт")}}
+            Choice("Вид призначення",kind,listOf("Догляд","Ліки","Реабілітація")){kind=it;executor=if(it=="Реабілітація")"THERAPIST" else "NURSE";if(it!="Ліки"){medication="";dose="";unit="";route=""}}
+            OutlinedTextField(description,{if(it.length<=4000)description=it},label={Text("Що потрібно виконати")},modifier=Modifier.fillMaxWidth())
+            if(kind=="Ліки"){
+                OutlinedTextField(medication,{if(it.length<=200)medication=it},label={Text("Препарат")},modifier=Modifier.fillMaxWidth())
+                OutlinedTextField(dose,{if(it.length<=100)dose=it},label={Text("Доза за призначенням лікаря")},modifier=Modifier.fillMaxWidth())
+                OutlinedTextField(unit,{if(it.length<=50)unit=it},label={Text("Одиниці: мг, мл тощо")},modifier=Modifier.fillMaxWidth())
+                Choice("Шлях введення",route.ifEmpty{"Оберіть"},listOf("Перорально","Внутрішньовенно","Внутрішньом’язово","Підшкірно","Інгаляційно","Зовнішньо")){route=it}
+                OutlinedTextField(route,{if(it.length<=100)route=it},label={Text("Шлях введення / уточнення")},modifier=Modifier.fillMaxWidth())
+            }
+            if(kind!="Ліки")Choice("Виконавець",roles[executor] ?: "",listOf("Медсестра","Реабілітолог")){executor=if(it=="Медсестра")"NURSE" else "THERAPIST"}
+            OutlinedButton(onClick={android.app.DatePickerDialog(context,{_,year,month,day->scheduled=scheduled.withDayOfMonth(1).withYear(year).withMonth(month+1).withDayOfMonth(day)},scheduled.year,scheduled.monthValue-1,scheduled.dayOfMonth).show()}){Icon(Icons.Outlined.CalendarMonth,null);Text(scheduled.format(java.time.format.DateTimeFormatter.ofPattern(" dd.MM.yyyy")))}
+            OutlinedButton(onClick={android.app.TimePickerDialog(context,{_,hour,minute->scheduled=scheduled.withHour(hour).withMinute(minute)},scheduled.hour,scheduled.minute,true).show()}){Icon(Icons.Outlined.Schedule,null);Text(scheduled.format(java.time.format.DateTimeFormatter.ofPattern(" HH:mm")))}
+            OutlinedTextField(count,{count=it.filter(Char::isDigit).take(2)},label={Text("Кількість виконань (1–90)")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),singleLine=true)
+            OutlinedTextField(interval,{interval=it.take(6)},label={Text("Інтервал, годин (1–720)")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Decimal),singleLine=true)
+        }
+        if(m.error.isNotEmpty())ErrorCard(m.error)
+    }},confirmButton={TextButton(enabled=!m.busy&&!m.uncertain&&selected!=null&&description.isNotBlank()&&(count.toIntOrNull() ?: 0) in 1..90&&(interval.toDoubleOrNull() ?: 0.0) in 1.0..720.0&&(kind!="Ліки"||(medication.isNotBlank()&&dose.isNotBlank()&&unit.isNotBlank()&&route.isNotBlank())),onClick={
+        if(!reviewing){reviewing=true}else m.write("/tasks",JSONObject().put("patient_id",selected!!.s("id")).put("description",description).put("task_type",kind).put("executor_role",executor).put("medication",medication).put("dose",dose).put("dose_unit",unit).put("route",route).put("scheduled_at",scheduled.toInstant().toString()).put("repeat_count",count.toInt()).put("interval_hours",interval.toDouble())){close()}
+    }){Text(if(reviewing)"Призначити" else "Перевірити")}},dismissButton={TextButton(enabled=!m.busy,onClick={if(reviewing)reviewing=false else close()}){Text(if(reviewing)"Редагувати" else "Скасувати")}})
+}
+@Composable private fun Choice(label:String,value:String,options:List<String>,change:(String)->Unit){
+    var expanded by remember {mutableStateOf(false)}
+    Box{OutlinedButton(onClick={expanded=true},modifier=Modifier.fillMaxWidth()){Text("$label: $value",Modifier.weight(1f));Icon(Icons.Outlined.ExpandMore,null)};DropdownMenu(expanded,{expanded=false}){options.forEach{item->DropdownMenuItem(text={Text(item)},onClick={change(item);expanded=false})}}}
 }
