@@ -12,7 +12,7 @@ const password='Testing-Only-Password-2026';
 const body=()=>({patient_id:patient.id,description:'Контрольне призначення',task_type:'Догляд',scheduled_at:new Date().toISOString()});
 before(async()=>{
  if(process.env.TEST_DATABASE_URL){db=new Database(process.env.TEST_DATABASE_URL);await db.migrate();close=()=>db.pool.end();}
- else {const pg=new PGlite();await pg.exec(readFileSync(new URL('../sql/001_initial.sql',import.meta.url),'utf8'));
+ else {const pg=new PGlite();for(const file of ['001_initial.sql','003_room_retirement.sql'])await pg.exec(readFileSync(new URL('../sql/'+file,import.meta.url),'utf8'));
   let chain=Promise.resolve();
   db={query:(q:string,v:any[]=[])=>pg.query(q,v),tx:async(fn:any)=>{let release!:()=>void;const previous=chain;chain=new Promise<void>(r=>release=r);await previous;try{return await pg.transaction(async tx=>fn({query:(q:string,v:any[]=[])=>tx.query(q,v)}));}finally{release();}}} as any;
   close=()=>pg.close();

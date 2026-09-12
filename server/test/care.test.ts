@@ -11,7 +11,7 @@ let c:Care,db:Database,close:()=>Promise<void>,admin:Actor,d1:Actor,d2:Actor,d3:
 async function actor(role:string,name:string):Promise<Actor>{const u=(await db.query('INSERT INTO users(name,login,password_hash,role,specialty) VALUES($1,$2,$3,$4,$5) RETURNING *',[name,'care-'+name,'not-a-login-hash',role,'Тест'])).rows[0];return {id:u.id,name,role,specialty:'Тест',permissions:permissions(u),sid:crypto.randomUUID()};}
 before(async()=>{
  if(process.env.TEST_DATABASE_URL){const control=new Database(process.env.TEST_DATABASE_URL);const schema='care_'+crypto.randomUUID().replaceAll('-','');await control.query('CREATE SCHEMA '+schema);const url=new URL(process.env.TEST_DATABASE_URL);url.searchParams.set('options','-c search_path='+schema);db=new Database(url.toString());await db.migrate();close=async()=>{await db.pool.end();await control.query('DROP SCHEMA '+schema+' CASCADE');await control.pool.end()};}
- else{const pg=new PGlite();for(const file of ['001_initial.sql','002_care.sql'])await pg.exec(readFileSync(new URL('../sql/'+file,import.meta.url),'utf8'));let queue=Promise.resolve();db={query:(q:string,v:any[]=[])=>pg.query(q,v),tx:async(fn:any)=>{let release!:()=>void;const before=queue;queue=new Promise<void>(r=>release=r);await before;try{return await pg.transaction(tx=>fn({query:(q:string,v:any[]=[])=>tx.query(q,v)}))}finally{release()}}} as any;close=()=>pg.close();}
+ else{const pg=new PGlite();for(const file of ['001_initial.sql','002_care.sql','003_room_retirement.sql'])await pg.exec(readFileSync(new URL('../sql/'+file,import.meta.url),'utf8'));let queue=Promise.resolve();db={query:(q:string,v:any[]=[])=>pg.query(q,v),tx:async(fn:any)=>{let release!:()=>void;const before=queue;queue=new Promise<void>(r=>release=r);await before;try{return await pg.transaction(tx=>fn({query:(q:string,v:any[]=[])=>tx.query(q,v)}))}finally{release()}}} as any;close=()=>pg.close();}
  c=new Care(db,'test-secret-with-at-least-thirty-two-characters');
  admin=await actor('ADMIN','careadmin');d1=await actor('DOCTOR','first');d2=await actor('DOCTOR','second');d3=await actor('DOCTOR','third');n1=await actor('NURSE','nursefirst');n2=await actor('NURSE','nursesecond');therapist=await actor('THERAPIST','therapist');
 });
@@ -115,4 +115,33 @@ test('Discharge summary preserves clinician fields and separates admissions',asy
  await c.discharge(admin,p.id);
  const archived=await c.patient({...d1,permissions:[...d1.permissions,'archive.read']},p.id);
  assert.equal(archived.entries.find((e:any)=>e.id===summary.id).data.diagnosis,'Тестовий діагноз');
+});
+
+test('Room retirement protects occupied beds, permissions and historical admissions',async()=>{
+ const registrar=await actor('REGISTRAR','retirement-registrar');
+ const room=await c.room(admin,{room_number:'Retirement test'});
+ const bed=await c.bed(admin,room.id,{bed_number:'1'});
+ await assert.rejects(()=>c.removeBed(registrar,bed.id));
+ await assert.rejects(()=>c.removeRoom(registrar,room.id));
+ await assert.rejects(()=>c.removeRoom(admin,room.id));
+ const p=await c.register(registrar,{name:'Retirement patient',bed_id:bed.id});
+ await assert.rejects(()=>c.removeBed(admin,bed.id));
+ await c.discharge(registrar,p.id);
+ await c.removeBed(admin,bed.id);
+ assert.equal((await c.rooms(registrar)).find(r=>r.id===room.id).beds.length,0);
+ await assert.rejects(()=>c.byQr(admin,bed.qr_uid));
+ await assert.rejects(()=>c.readmit(registrar,p.id,{bed_id:bed.id}));
+ await assert.rejects(()=>c.register(registrar,{name:'Stale bed patient',bed_id:bed.id}));
+ const other=await patient();await assert.rejects(()=>c.editPatient(admin,other.id,{name:other.name,doctor_id:d1.id,bed_id:bed.id}));
+ await c.removeRoom(admin,room.id);
+ await assert.rejects(()=>c.bed(admin,room.id,{bed_number:'2'}));
+ assert.equal((await c.rooms(registrar)).some(r=>r.id===room.id),false);
+ const history=await c.patient(admin,p.id);
+ assert.equal(history.admissions[0].room_number,'Retirement test');
+ assert.equal(history.admissions[0].bed_number,'1');
+ assert.ok(history.admissions[0].discharged_at);
+ const recreated=await c.room(admin,{room_number:'Retirement test'});
+ assert.notEqual(recreated.id,room.id);
+ const actions=(await db.query('SELECT action FROM audit_events WHERE entity_id=ANY($1::uuid[])',[[room.id,bed.id]])).rows.map(r=>r.action);
+ assert.ok(actions.includes('room.deleted'));assert.ok(actions.includes('bed.deleted'));
 });

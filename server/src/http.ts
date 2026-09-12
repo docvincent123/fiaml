@@ -52,6 +52,8 @@ export class ApiController {
  @Get('rooms') rooms(@Req() r:AuthRequest){return this.c.rooms(r.actor);}
  @Post('rooms') room(@Req() r:AuthRequest,@Body() b:any){return this.c.room(r.actor,b);}
  @Post('rooms/:id/beds') bed(@Req() r:AuthRequest,@Param('id') id:string,@Body() b:any){return this.c.bed(r.actor,id,b);}
+ @Delete('beds/:id') removeBed(@Req() r:AuthRequest,@Param('id') id:string){return this.c.removeBed(r.actor,id);}
+ @Delete('rooms/:id') removeRoom(@Req() r:AuthRequest,@Param('id') id:string){return this.c.removeRoom(r.actor,id);}
  @Get('beds/qr/:uid') qr(@Req() r:AuthRequest,@Param('uid') id:string){return this.c.byQr(r.actor,id);}
  @Get('beds/qr/:uid/image') async qrImage(@Req() r:AuthRequest,@Param('uid') id:string,@Res() res:Response){allow(r.actor,'rooms.manage');await this.c.byQr(r.actor,id);const base=process.env.PUBLIC_URL;if(!base) throw new HttpException('Налаштуйте PUBLIC_URL сервера',503);res.type('image/svg+xml').send(await QRCode.toString(new URL('/bed/'+id,base).href,{type:'svg',margin:2}));}
  @Get('cabinets') cabinets(@Req() r:AuthRequest){return this.c.cabinets(r.actor);}

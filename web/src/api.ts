@@ -4,7 +4,13 @@ export function setToken(value:string){token=value;if(value)sessionStorage.setIt
 let pending=0,writes=0,last='',connectionError='',writeError='',saved='';
 window.addEventListener('acknowledge-save-error',()=>{writeError='';publish()});
 const publish=()=>window.dispatchEvent(new CustomEvent('api-status',{detail:{pending,writes,last,saved,error:writeError||connectionError}}));
-export async function api(path:string,method='GET',body?:unknown){
+const reads=new Map<string,Promise<any>>();
+export function api(path:string,method='GET',body?:unknown):Promise<any>{
+ if(method!=='GET')return request(path,method,body);
+ const key=token+'|'+path;const existing=reads.get(key);if(existing)return existing;
+ const result=request(path,method,body).finally(()=>{if(reads.get(key)===result)reads.delete(key)});reads.set(key,result);return result;
+}
+async function request(path:string,method='GET',body?:unknown){
  const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),20000);pending++;if(method!=='GET')writes++;publish();
  try {let r:Response;try{r=await fetch('/api'+path,{method,headers:{'Content-Type':'application/json','X-RehaFlow-API':'1',...(token?{Authorization:`Bearer ${token}`}:{})},body:body===undefined?undefined:JSON.stringify(body),cache:'no-store',signal:controller.signal})}catch{connectionError='Немає відповіді сервера. Дія не підтверджена; перед повтором перевірте її стан.';if(method!=='GET')writeError=connectionError;throw new Error(connectionError)}
  const data=await r.json().catch(()=>{if(method!=='GET')writeError='Сервер повернув неочікувану відповідь. Перевірте стан дії перед повтором.';throw new Error('Неочікувана відповідь сервера')});connectionError='';last=new Date().toLocaleTimeString('uk-UA');
