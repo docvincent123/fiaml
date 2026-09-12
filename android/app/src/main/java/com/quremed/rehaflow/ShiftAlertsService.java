@@ -33,7 +33,7 @@ public final class ShiftAlertsService extends Service {
         manager.createNotificationChannel(status);manager.createNotificationChannel(events);
     }
     static PendingIntent open(Context context,String path){
-        Intent intent=new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP|Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        Intent intent=new Intent(context,com.quremed.rehaflow.nativeui.NativeActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP|Intent.FLAG_ACTIVITY_CLEAR_TOP);
         intent.putExtra("destination",path);
         return PendingIntent.getActivity(context,path.hashCode(),intent,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
     }

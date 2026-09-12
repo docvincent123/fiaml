@@ -23,6 +23,7 @@ public final class MainActivity extends Activity {
     private TextView status;
     private String origin = "";
     private boolean loadFailed;
+    private boolean nativeWorkspace=false, nativeSeeded=false;
     private String alertToken="",alertUser="";
     private boolean activityVisible=false;
     private String destination="/";
@@ -34,6 +35,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        nativeWorkspace=getIntent().getBooleanExtra("native_workspace",false);
         destination=safeDestination(getIntent().getStringExtra("destination"));
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
         root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setBackgroundColor(background);
@@ -86,7 +88,7 @@ public final class MainActivity extends Activity {
         status=text("Підключення…",12);root.addView(status);
         settings.setOnClickListener(v->new AlertDialog.Builder(this).setMessage("Вийти з поточного вікна та змінити сервер?").setNegativeButton("Назад",null).setPositiveButton("Змінити",(d,w)->setup()).show());
         web=new WebView(this);web.setBackgroundColor(background);root.addView(web,new LinearLayout.LayoutParams(-1,0,1));
-        WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setCacheMode(WebSettings.LOAD_NO_CACHE);s.setSupportMultipleWindows(false);s.setUserAgentString(s.getUserAgentString()+" RehaFlowAndroid/2.3.1");
+        WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setCacheMode(WebSettings.LOAD_NO_CACHE);s.setSupportMultipleWindows(false);s.setUserAgentString(s.getUserAgentString()+" RehaFlowAndroid/2.4.0");
         CookieManager.getInstance().setAcceptThirdPartyCookies(web,false);
         web.addJavascriptInterface(new DocumentBridge(),"QureMedAndroid");
         reload.setOnClickListener(v->web.reload());print.setOnClickListener(v->printPage());
@@ -96,7 +98,13 @@ public final class MainActivity extends Activity {
             @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest req){String url=req.getUrl().toString();if(!sameOrigin(url)&&!url.startsWith("data:")&&!url.startsWith("blob:"+origin+"/"))return new WebResourceResponse("text/plain","UTF-8",new ByteArrayInputStream(new byte[0]));return null;}
             @Override public void onReceivedSslError(WebView v,SslErrorHandler handler,SslError error){handler.cancel();loadFailed=true;connectionBar.setVisibility(View.VISIBLE);status.setVisibility(View.VISIBLE);status.setText(tlsExplanation(error));}
             @Override public void onReceivedError(WebView v,WebResourceRequest req,WebResourceError error){if(req.isForMainFrame()&&!loadFailed){loadFailed=true;connectionBar.setVisibility(View.VISIBLE);status.setVisibility(View.VISIBLE);status.setText("Сервер недоступний. Перевірте Wi-Fi, адресу й запуск сервера. Натисніть Оновити.");}}
-            @Override public void onPageFinished(WebView v,String url){if(sameOrigin(url)&&!loadFailed){status.setVisibility(View.GONE);connectionBar.setVisibility(View.GONE);}}
+            @Override public void onPageFinished(WebView v,String url){if(sameOrigin(url)&&!loadFailed){
+                if(nativeWorkspace&&!nativeSeeded&&origin.equals(NativeSession.server)&&!NativeSession.token.isEmpty()){
+                    nativeSeeded=true;
+                    v.evaluateJavascript("sessionStorage.setItem('quremed-token',"+org.json.JSONObject.quote(NativeSession.token)+");location.replace("+org.json.JSONObject.quote(origin+destination)+");",null);return;
+                }
+                status.setVisibility(View.GONE);connectionBar.setVisibility(View.GONE);
+            }}
         });
         web.setWebChromeClient(new WebChromeClient(){
             @Override public void onPermissionRequest(PermissionRequest request){request.deny();}
@@ -104,7 +112,7 @@ public final class MainActivity extends Activity {
         });
         web.loadUrl(origin+destination);
     }
-    private static String safeDestination(String path){return path!=null&&java.util.Arrays.asList("/","/pool","/messages","/tasks","/handovers","/settings").contains(path)?path:"/";}
+    private static String safeDestination(String path){if(path!=null&&path.matches("/patients\\?patient=[0-9a-fA-F-]{36}"))return path;return path!=null&&java.util.Arrays.asList("/","/pool","/messages","/tasks","/handovers","/settings","/patients","/archive","/rooms","/cabinets","/schedule","/users","/sessions","/audit").contains(path)?path:"/";}
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);destination=safeDestination(intent.getStringExtra("destination"));if(web!=null&&sameOrigin(web.getUrl()))web.loadUrl(origin+destination);}
     private void clearAlertSession(){alertToken="";alertUser="";stopService(new Intent(this,ShiftAlertsService.class));getSystemService(android.app.NotificationManager.class).cancelAll();}
     private void startAlerts(boolean ask){
@@ -124,7 +132,7 @@ public final class MainActivity extends Activity {
             case SslError.SSL_UNTRUSTED: reason="Android не довіряє центру сертифікації. Потрібен актуальний QureMed-Local-CA.crt саме з поточної папки сервера, встановлений як CA у тому самому профілі Android, де працює застосунок. Сертифікат Wi-Fi або старого сервера не підходить.";break;
             default: reason="Не вдалося перевірити HTTPS-сертифікат. Перевірте адресу, час і актуальний CA сервера.";
         }
-        return reason+"\nСервер: "+origin+"\nКод TLS: "+error.getPrimaryError()+" · APK 2.3.1\nПісля встановлення CA повністю закрийте застосунок і відкрийте знову.";
+        return reason+"\nСервер: "+origin+"\nКод TLS: "+error.getPrimaryError()+" · APK 2.4.0\nПісля встановлення CA повністю закрийте застосунок і відкрийте знову.";
     }
     private void certificateHelp(){new AlertDialog.Builder(this).setTitle("Довіра до сервера центру").setMessage("1. На ПК сервера знайдіть QureMed-Local-CA.crt поряд зі Start-QureMed.\n2. Скопіюйте цей файл на телефон через USB або передайте його особисто.\n3. Налаштування Android → Безпека → Інші налаштування безпеки → Установити сертифікат → Сертифікат CA. Назви меню можуть відрізнятися.\n4. Оберіть файл центру й підтвердьте встановлення. Поверніться сюди та натисніть «Оновити».\n\nАдреса застосунку — IP ПК сервера, а не шлюз роутера. Перевірте дату й час телефона.").setNegativeButton("Закрити",null).setPositiveButton("Налаштування безпеки",(d,w)->{try{startActivity(new Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS));}catch(Exception e){Toast.makeText(this,"Відкрийте налаштування безпеки Android",Toast.LENGTH_LONG).show();}}).show();}
     private void printPage(){if(web!=null&&sameOrigin(web.getUrl())){PrintManager manager=(PrintManager)getSystemService(PRINT_SERVICE);if(manager!=null)manager.print("RehaFlow",web.createPrintDocumentAdapter("RehaFlow"),null);}}
@@ -138,8 +146,8 @@ public final class MainActivity extends Activity {
                 return new org.json.JSONObject().put("id",id).put("model",android.os.Build.MANUFACTURER+" "+android.os.Build.MODEL).put("android",android.os.Build.VERSION.RELEASE).put("version",info.versionName).put("package",getPackageName()).toString();
             }catch(Exception e){return "{}";}
         }
-        @JavascriptInterface public void session(String token,String user){runOnUiThread(()->{if(web==null||!sameOrigin(web.getUrl())||token==null||token.length()>8192)return;alertToken=token;alertUser=user;startAlerts(true);});}
-        @JavascriptInterface public void clearSession(){runOnUiThread(()->clearAlertSession());}
+        @JavascriptInterface public void session(String token,String user){runOnUiThread(()->{if(web==null||!sameOrigin(web.getUrl())||token==null||token.length()>8192)return;alertToken=token;alertUser=user;if(nativeWorkspace){NativeSession.token=token;NativeSession.userId=user;}startAlerts(true);});}
+        @JavascriptInterface public void clearSession(){runOnUiThread(()->{if(nativeWorkspace&&nativeSeeded&&!alertToken.isEmpty())NativeSession.clear();clearAlertSession();});}
         @JavascriptInterface public void enableAlerts(){runOnUiThread(()->{getSharedPreferences("shift-alerts",MODE_PRIVATE).edit().putBoolean("enabled",true).apply();startAlerts(true);});}
         @JavascriptInterface public void disableAlerts(){runOnUiThread(()->{getSharedPreferences("shift-alerts",MODE_PRIVATE).edit().putBoolean("enabled",false).apply();stopService(new Intent(MainActivity.this,ShiftAlertsService.class));ShiftAlertsService.state="Фонові сповіщення вимкнено";});}
         @JavascriptInterface public String notificationStatus(){try{return new org.json.JSONObject().put("running",ShiftAlertsService.running).put("message",ShiftAlertsService.state).toString();}catch(Exception e){return "{}";}}
