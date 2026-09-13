@@ -82,7 +82,7 @@ public final class ShiftAlertsService extends Service {
             try(InputStream input=connection.getInputStream()){byte[] buffer=new byte[4096];int count;while((count=input.read(buffer))!=-1){bytes.write(buffer,0,count);if(bytes.size()>262144)throw new IOException();}}
             JSONObject data=new JSONObject(bytes.toString("UTF-8"));
             if(version!=generation||ended)return;
-            if(!data.getBoolean("active")){state="Зміну завершено";stopSelf();return;}
+            if(!data.getBoolean("active")){if(data.optBoolean("pending",false)){status("Очікуємо підтвердження зміни адміністратором");return;}state="Зміна не активна";stopSelf();return;}
             JSONArray events=data.getJSONArray("events");
             String key="seen:"+currentServer+":"+currentUser;
             android.content.SharedPreferences preferences=getSharedPreferences("shift-alerts",MODE_PRIVATE);

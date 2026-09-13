@@ -171,7 +171,7 @@ test('HTTP mutations require approved shift and rejection keeps it closed',async
  await assert.rejects(()=>guard.canActivate(context));
  const pending=(await c.shiftRequests(admin)).find(r=>r.user_id===created.id)!;
  await c.approveShift(admin,pending.id,false);await assert.rejects(()=>guard.canActivate(context));
- const worker=await c.authenticate(session.token);await c.shift(worker,{start:true});
+ const worker=await c.authenticate(session.token);await c.shift(worker,{start:true});assert.equal((await c.notificationFeed(worker) as any).pending,true);
  const second=(await c.shiftRequests(admin)).find(r=>r.user_id===created.id)!;await c.approveShift(admin,second.id,true);
  assert.equal(await guard.canActivate(context),true);
  await c.shift(worker,{start:false});await assert.rejects(()=>guard.canActivate(context));

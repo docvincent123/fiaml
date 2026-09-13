@@ -84,6 +84,7 @@ class NativeActivity : ComponentActivity() {
         var close by remember { mutableStateOf(false) }
         val lifecycle=LocalLifecycleOwner.current.lifecycle
         LaunchedEffect(m.user != null,m.page,m.changed){lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED){while(true){m.refresh();delay(5000)}}}
+        LaunchedEffect(m.user?.optBoolean("onShift"),m.user?.s("role")){if((m.user?.optBoolean("onShift")==true||m.user?.s("role")=="ADMIN")&&!ShiftAlertsService.running)startAlerts()}
         LaunchedEffect(m.user){if(m.user==null && NativeSession.token.isEmpty())stopAlerts()}
         BackHandler(m.user!=null){if(m.patient!=null)m.closePatient() else if(m.page!="home")m.select("home") else close=true}
         if(m.user==null){
