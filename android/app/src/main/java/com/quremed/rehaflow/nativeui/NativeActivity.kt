@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import com.quremed.rehaflow.SessionStore
 import com.quremed.rehaflow.MainActivity
 import com.quremed.rehaflow.NativeSession
 import com.quremed.rehaflow.R
@@ -67,7 +68,9 @@ class NativeActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState:Bundle?){
         super.onCreate(savedInstanceState)
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE,WindowManager.LayoutParams.FLAG_SECURE)
+        NativeSession.initialize(this)
         NativeSession.server=getSharedPreferences("MainActivity",MODE_PRIVATE).getString("server","") ?: ""
+        if(NativeSession.token.isEmpty())SessionStore.restore(this)
         setContent { MaterialTheme(colorScheme=palette) { Surface(Modifier.fillMaxSize()) { App() } } }
     }
     override fun onNewIntent(intent:Intent){super.onNewIntent(intent);setIntent(intent)
@@ -75,6 +78,7 @@ class NativeActivity : ComponentActivity() {
     }
     @Composable private fun App(){
         val m=model
+        LaunchedEffect(Unit){if(m.user==null)m.restore{startAlerts()}}
         var server by rememberSaveable { mutableStateOf(NativeSession.server) }
         var editingServer by rememberSaveable { mutableStateOf(server.isEmpty()) }
         var close by remember { mutableStateOf(false) }
@@ -97,11 +101,12 @@ class NativeActivity : ComponentActivity() {
                     }else{
                         var login by remember {mutableStateOf("")};var password by remember {mutableStateOf("")}
                         Text("Раді вас бачити",style=MaterialTheme.typography.headlineSmall)
-                        Text("Увійдіть у свій обліковий запис. Для персоналу зміна починається автоматично.")
+                        Text("Після входу адміністратору автоматично надсилається запит на відкриття зміни.")
                         OutlinedTextField(login,{login=it},label={Text("Логін")},singleLine=true,modifier=Modifier.fillMaxWidth())
                         OutlinedTextField(password,{password=it},label={Text("Пароль")},visualTransformation=PasswordVisualTransformation(),singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password),modifier=Modifier.fillMaxWidth())
-                        Button(enabled=!m.busy&&login.isNotBlank()&&password.isNotEmpty(),onClick={m.login(login,password,Build.MANUFACTURER+" "+Build.MODEL){password="";startAlerts()}},modifier=Modifier.fillMaxWidth()){Text(if(m.busy)"Входимо…" else "Увійти")}
-                        TextButton(onClick={editingServer=true}){Text("Змінити сервер")}
+                        Button(enabled=!m.busy&&login.isNotBlank()&&password.isNotEmpty(),onClick={m.login(login,password,Build.MANUFACTURER+" "+Build.MODEL){password="";SessionStore.save(this@NativeActivity);startAlerts()}},modifier=Modifier.fillMaxWidth()){Text(if(m.busy)"Входимо…" else "Увійти")}
+                        if(NativeSession.token.isNotEmpty())TextButton(enabled=!m.busy,onClick={m.restore{startAlerts()}}){Text("Відновити поточну сесію")}
+                        TextButton(onClick={m.clear();editingServer=true}){Text("Змінити сервер")}
                     }
                     if(m.error.isNotEmpty())ErrorCard(m.error)
                 }
@@ -116,7 +121,7 @@ class NativeActivity : ComponentActivity() {
                     Column(Modifier.fillMaxSize().padding(padding).padding(horizontal=if(wide)28.dp else 16.dp)){
                         Row(Modifier.fillMaxWidth().padding(vertical=14.dp),verticalAlignment=Alignment.CenterVertically){
                             Image(painterResource(R.drawable.rehaflow_icon),null,Modifier.size(36.dp));Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)){Text(nav.find{it.key==m.page}?.title ?: "RehaFlow",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold);Text(roles[m.user?.s("role")] ?: "",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary)}
+                            Column(Modifier.weight(1f)){Text(nav.find{it.key==m.page}?.title ?: "RehaFlow",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold);Text(m.user?.s("role_label")?.takeIf{it.isNotEmpty()} ?: roles[m.user?.s("role")] ?: "",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary)}
                             if(m.loading)CircularProgressIndicator(Modifier.size(18.dp),strokeWidth=2.dp)
                             IconButton(onClick={close=true}){Icon(Icons.Outlined.Logout,"Завершити роботу")}
                         }
@@ -145,7 +150,7 @@ class NativeActivity : ComponentActivity() {
         val identity=remember {val p=getSharedPreferences("device-identity",MODE_PRIVATE);p.getString("installation_id","")!!.ifEmpty{java.util.UUID.randomUUID().toString().also{p.edit().putString("installation_id",it).commit()}}}
         var alerts by remember {mutableStateOf(getSharedPreferences("shift-alerts",MODE_PRIVATE).getBoolean("enabled",true))}
         LazyColumn(verticalArrangement=Arrangement.spacedBy(14.dp),contentPadding=PaddingValues(bottom=24.dp)){
-            item{InfoCard("Ваш профіль",m.user?.s("name") ?: "",roles[m.user?.s("role")] ?: "")}
+            item{InfoCard("Ваш профіль",m.user?.s("name") ?: "",m.user?.s("role_label")?.takeIf{it.isNotEmpty()} ?: roles[m.user?.s("role")] ?: "")}
             item{InfoCard("Цей пристрій",Build.MANUFACTURER+" "+Build.MODEL,"Android ${Build.VERSION.RELEASE}\nRehaFlow ${info.versionName}\nКод установлення: $identity\nКод зміниться після очищення даних або перевстановлення.")}
             item{Card{Column(Modifier.padding(18.dp)){Text("Сповіщення",style=MaterialTheme.typography.titleMedium);Row(verticalAlignment=Alignment.CenterVertically){Text("Звук і нові завдання",Modifier.weight(1f));Switch(alerts,{alerts=it;getSharedPreferences("shift-alerts",MODE_PRIVATE).edit().putBoolean("enabled",it).apply();if(it)onAlerts() else stopAlerts()})};Text(ShiftAlertsService.state);TextButton(onClick={runCatching{startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,packageName))}}){Text("Звук і дозволи Android")}}}}
             item{InfoCard("З’єднання",NativeSession.server,"Списки перевіряються кожні 5 секунд, поки застосунок відкритий. Останній зв’язок: ${m.synchronizedAt.ifEmpty{"—"}}")}
@@ -161,7 +166,8 @@ class NativeActivity : ComponentActivity() {
 
 @Composable private fun Home(m:ClinicModel,open:(String)->Unit){
     LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp),contentPadding=PaddingValues(bottom=24.dp)){
-        item{InfoCard("Ваш робочий простір",m.user?.s("name") ?: "",if(m.user?.s("role")=="ADMIN")"Керування центром" else if(m.user?.optBoolean("onShift")==true)"Зміна активна • дані центру поруч" else "Зміна не активна")}
+        if(m.user?.s("role")!="ADMIN"&&m.user?.optBoolean("onShift")!=true)item{OutlinedButton(enabled=!m.busy,onClick={m.write("/shift",JSONObject().put("start",true))}){Text("Надіслати запит адміністратору")}}
+        item{InfoCard("Ваш робочий простір",m.user?.s("name") ?: "",if(m.user?.s("role")=="ADMIN")"Керування центром" else if(m.user?.optBoolean("onShift")==true)"Зміна активна • дані центру поруч" else "Очікує підтвердження адміністратора")}
         items((m.data as? JSONObject)?.optJSONArray("metrics")?.objects() ?: emptyList()){metric->ActionTile(metric.s("label"),metric.s("value"),Icons.Outlined.Insights){open(metric.s("path"))}}
         if(m.can("patients.read"))item{ActionTile("Пацієнти","Знайти картку та лікуючого лікаря",Icons.Outlined.People){m.select("patients")}}
         if(m.can("tasks.work")||m.can("tasks.read"))item{ActionTile("Завдання та призначення","План роботи і результати виконання",Icons.Outlined.Assignment){m.select("tasks")}}
@@ -224,7 +230,7 @@ private val taskStatuses=mapOf("OPEN" to "У пулі","IN_PROGRESS" to "У ро
             FilterChip(selected=filter=="ALL",onClick={filter="ALL"},label={Text("Усі")})
         }
         if(m.can("tasks.create"))TextButton(onClick={prescribing=true}){Icon(Icons.Outlined.AddCircleOutline,null);Text("Нове призначення")}
-        if(m.can("tasks.work")&&m.user?.optBoolean("onShift")!=true)Button(enabled=!m.busy,onClick={m.write("/shift",JSONObject().put("start",true))}){Text("Почати зміну")}
+        if(m.can("tasks.work")&&m.user?.optBoolean("onShift")!=true)Button(enabled=!m.busy,onClick={m.write("/shift",JSONObject().put("start",true))}){Text("Запит на відкриття зміни")}
         LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp),contentPadding=PaddingValues(bottom=24.dp)){
             val visible=rows.filter{filter=="ALL"||it.s("status")==filter}
             if(visible.isEmpty())item{Text(if(m.loading)"Завантаження…" else "У цьому списку завдань немає")}
@@ -286,7 +292,7 @@ private fun localTime(value:String):String=runCatching{java.time.OffsetDateTime.
     var scheduled by remember {mutableStateOf(java.time.ZonedDateTime.now().withSecond(0).withNano(0))}
     var reviewing by remember {mutableStateOf(false)}
     val context=LocalContext.current
-    LaunchedEffect(query){delay(300);try{patients=(ClinicApi.request("/patients?q="+java.net.URLEncoder.encode(query,"UTF-8")) as JSONArray).objects();loadError=""}catch(e:Exception){loadError=e.message ?: "Помилка пошуку"}}
+    LaunchedEffect(query){delay(300);try{patients=(ClinicApi.request("/patients?q="+java.net.URLEncoder.encode(query,"UTF-8")) as JSONArray).objects();loadError=""}catch(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e;loadError=e.message ?: "Помилка пошуку"}}
     AlertDialog(onDismissRequest={if(!m.busy)close()},title={Text(if(reviewing)"Перевірте призначення" else "Нове призначення")},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
         if(reviewing){
             Text(selected?.s("name") ?: "",fontWeight=FontWeight.Bold);Text("Дата народження: ${selected?.s("birth_date")?.take(10)}")

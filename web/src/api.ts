@@ -1,4 +1,4 @@
-export type User={id:string;name:string;role:string;specialty:string;permissions:string[];sid:string;onShift?:boolean};
+export type User={id:string;name:string;role:string;role_label?:string;specialty:string;permissions:string[];sid:string;onShift?:boolean};
 export let token=sessionStorage.getItem('quremed-token')||'';
 export function setToken(value:string){token=value;if(value)sessionStorage.setItem('quremed-token',value);else sessionStorage.removeItem('quremed-token');}
 let pending=0,writes=0,last='',connectionError='',writeError='',saved='';

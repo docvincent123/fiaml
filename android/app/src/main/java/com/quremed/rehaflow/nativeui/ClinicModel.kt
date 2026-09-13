@@ -52,6 +52,11 @@ class ClinicModel : ViewModel() {
             } catch (e: Exception) { fail(e) } finally { busy = false }
         }
     }
+    fun restore(done:()->Unit){
+        if(NativeSession.token.isEmpty()||busy)return
+        busy=true
+        viewModelScope.launch{try{user=ClinicApi.request("/auth/me") as JSONObject;changed++;done()}catch(e:Exception){fail(e)}finally{busy=false}}
+    }
     fun select(next: String) { page = next; data = null; patient = null; error = ""; search = ""; offset = 0; changed++ }
     suspend fun refresh() {
         if (loading || busy || user == null) return
@@ -78,7 +83,7 @@ class ClinicModel : ViewModel() {
                 if (!uncertain) error = ""
                 synchronizedAt = java.time.LocalTime.now().withNano(0).toString()
             }
-        } catch (e: Exception) { if (auth == NativeSession.token) fail(e) } finally { loading = false }
+        } catch (e: Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; if (auth == NativeSession.token && selected == page) fail(e) } finally { loading = false }
     }
     fun openPatient(id: String) {
         viewModelScope.launch {

@@ -29,35 +29,37 @@ export class Clinic {
    const valid=await verifyPassword(b.password,u?.password_hash??'00000000000000000000000000000000:'+ '00'.repeat(64));
    if(!u||!valid){await c.query("UPDATE login_attempts SET failures=CASE WHEN window_at<now()-interval '15 minutes' THEN 1 ELSE failures+1 END, blocked_until=CASE WHEN failures>=4 AND window_at>=now()-interval '15 minutes' THEN now()+interval '15 minutes' ELSE NULL END, window_at=CASE WHEN window_at<now()-interval '15 minutes' THEN now() ELSE window_at END WHERE key=$1",[b.login.toLowerCase()]);return null;}
    await c.query('DELETE FROM login_attempts WHERE key=$1',[b.login.toLowerCase()]);
-   const s=(await c.query("INSERT INTO sessions(user_id,device,ip,expires_at) VALUES($1,$2,$3,now()+interval '8 hours') RETURNING id",[u.id,b.device,ip])).rows[0];
-   if(u.role!=='ADMIN'&&!(await c.query('SELECT id FROM shifts WHERE user_id=$1 AND starts_at<=now() AND ends_at>now()',[u.id])).rows.length){await c.query("INSERT INTO shifts(user_id,ends_at) VALUES($1,now()+interval '12 hours')",[u.id]);await this.audit(c,{id:u.id} as Actor,'shift.started.auto',u.id);}
+   const s=(await c.query("INSERT INTO sessions(user_id,device,ip,expires_at) VALUES($1,$2,$3,now()+interval '14 hours') RETURNING id",[u.id,b.device,ip])).rows[0];
+   if(u.role!=='ADMIN'&&!(await c.query('SELECT id FROM shifts WHERE user_id=$1 AND starts_at<=now() AND ends_at>now()',[u.id])).rows.length){await c.query("INSERT INTO shift_requests(user_id) VALUES($1) ON CONFLICT(user_id) WHERE status='PENDING' DO NOTHING",[u.id]);}
    await this.audit(c,null,'session.login',s.id);
    return {u,s};
   });
   if(!result) throw new UnauthorizedException('Неправильний логін/пароль або вхід тимчасово заблоковано');
   const {u,s}=result;
-  const token=await new SignJWT({sid:s.id,role:u.role,permissions:permissions(u)}).setProtectedHeader({alg:'HS256'}).setSubject(u.id).setIssuer('quremed-local').setAudience('rehaflow').setIssuedAt().setExpirationTime('8h').sign(this.key);
-  return {token,user:{id:u.id,name:u.name,role:u.role,specialty:u.specialty,permissions:permissions(u),sid:s.id}};
+  const token=await new SignJWT({sid:s.id,role:u.role,permissions:permissions(u)}).setProtectedHeader({alg:'HS256'}).setSubject(u.id).setIssuer('quremed-local').setAudience('rehaflow').setIssuedAt().setExpirationTime('14h').sign(this.key);
+  return {token,user:{id:u.id,name:u.name,role:u.role,specialty:u.specialty,role_label:u.role_label,permissions:permissions(u),sid:s.id}};
  }
  async authenticate(token:string):Promise<Actor>{
   try{const {payload}=await jwtVerify(token,this.key,{issuer:'quremed-local',audience:'rehaflow',algorithms:['HS256']});
    const u=(await this.db.query('SELECT u.*,s.id AS sid FROM users u JOIN sessions s ON s.user_id=u.id WHERE u.id=$1 AND s.id=$2 AND u.active AND s.revoked_at IS NULL AND s.expires_at>now()',[payload.sub,payload.sid])).rows[0];
-   if(!u) throw new Error(); return {id:u.id,name:u.name,role:u.role,specialty:u.specialty,permissions:permissions(u),sid:u.sid};
+   if(!u) throw new Error(); return {id:u.id,name:u.name,role:u.role,specialty:u.specialty,role_label:u.role_label,permissions:permissions(u),sid:u.sid};
   }catch{throw new UnauthorizedException('Сесію завершено. Увійдіть знову');}
  }
  async onShift(a:Actor,c:Queryable=this.db){return !!(await c.query('SELECT 1 FROM shifts WHERE user_id=$1 AND starts_at<=now() AND ends_at>now()',[a.id])).rows.length;}
  async me(a:Actor){await this.db.query('UPDATE sessions SET last_seen_at=now() WHERE id=$1',[a.sid]);return {...a,onShift:await this.onShift(a)};}
- async logout(a:Actor){await this.db.query('UPDATE sessions SET revoked_at=now() WHERE id=$1',[a.sid]);return {ok:true};}
+ async logout(a:Actor){await this.db.tx(async c=>{await c.query('UPDATE sessions SET revoked_at=now() WHERE id=$1',[a.sid]);await c.query("UPDATE shift_requests SET status='REJECTED',decided_at=now(),decided_by=$1 WHERE user_id=$1 AND status='PENDING'",[a.id]);});return {ok:true};}
  async sessions(a:Actor){allow(a,'sessions.manage');return (await this.db.query("SELECT s.id,s.device,s.ip,s.created_at,s.last_seen_at,s.expires_at,s.revoked_at,u.name,u.role,(s.revoked_at IS NULL AND s.expires_at>now() AND s.last_seen_at>now()-interval '90 seconds') AS online FROM sessions s JOIN users u ON u.id=s.user_id ORDER BY s.created_at DESC LIMIT 300")).rows;}
  async revoke(a:Actor,id:string){allow(a,'sessions.manage');uuid.parse(id);await this.db.tx(async c=>{if(!(await c.query('UPDATE sessions SET revoked_at=now() WHERE id=$1 RETURNING id',[id])).rows.length) throw new NotFoundException();await this.audit(c,a,'session.revoked',id);});return {ok:true};}
- async changePassword(a:Actor,input:any){const b=z.object({currentPassword:z.string().max(256),newPassword:z.string().min(12).max(256)}).parse(input);
+ async changePassword(a:Actor,input:any){const b=z.object({currentPassword:z.string().max(256),newPassword:z.string().min(1).max(256)}).parse(input);
+  if(a.role==='ADMIN'&&b.newPassword.length<12)throw new BadRequestException('Пароль адміністратора: мінімум 12 символів');
   const u=(await this.db.query('SELECT password_hash FROM users WHERE id=$1',[a.id])).rows[0];if(!await verifyPassword(b.currentPassword,u.password_hash)) throw new ForbiddenException('Поточний пароль неправильний');
   await this.db.tx(async c=>{await c.query('UPDATE users SET password_hash=$1 WHERE id=$2',[await hashPassword(b.newPassword),a.id]);await c.query('UPDATE sessions SET revoked_at=now() WHERE user_id=$1',[a.id]);await this.audit(c,a,'password.changed',a.id);});return {ok:true};
  }
- async users(a:Actor){allow(a,'users.manage');return (await this.db.query('SELECT id,name,login,role,specialty,permissions,active FROM users ORDER BY name')).rows;}
+ async users(a:Actor){allow(a,'users.manage');return (await this.db.query('SELECT id,name,login,role,role_label,specialty,permissions,active FROM users ORDER BY name')).rows;}
  async staff(a:Actor){if(!a.permissions.some(p=>['patients.read','patients.manage','users.manage'].includes(p))) throw new ForbiddenException();return (await this.db.query("SELECT id,name,role,specialty FROM users WHERE active AND role IN ('DOCTOR','NURSE') ORDER BY name")).rows;}
  async saveUser(a:Actor,input:any,id?:string){allow(a,'users.manage');if(id) uuid.parse(id);
-  const b=z.object({name:text,login:z.string().trim().toLowerCase().regex(/^[a-z0-9._-]{3,64}$/),role,specialty:z.string().max(200).default(''),password:z.string().min(12).max(256).optional(),active:z.boolean().default(true),permissions:z.record(z.string(),z.boolean()).default({})}).parse(input);
+  const b=z.object({name:text,login:z.string().trim().toLowerCase().regex(/^[a-z0-9._-]{3,64}$/),role,specialty:z.string().max(200).default(''),role_label:z.string().trim().max(100).default(''),password:z.string().min(1).max(256).optional(),active:z.boolean().default(true),permissions:z.record(z.string(),z.boolean()).default({})}).parse(input);
+  if(b.role==='ADMIN'&&b.password&&b.password.length<12)throw new BadRequestException('Пароль адміністратора: мінімум 12 символів');
   if(b.role==='DOCTOR'&&!b.specialty.trim()) throw new BadRequestException('Вкажіть спеціальність');
   if(Object.keys(b.permissions).some(p=>!defaults[b.role].includes(p))) throw new BadRequestException('Право не належить цій ролі');
   if(!id&&!b.password) throw new BadRequestException('Вкажіть пароль');
@@ -70,14 +72,16 @@ export class Clinic {
     await c.query('UPDATE users SET name=$1,login=$2,role=$3,specialty=$4,active=$5,permissions=$6,password_hash=COALESCE($7,password_hash) WHERE id=$8',[b.name,b.login,b.role,b.specialty,b.active,b.permissions,b.password?await hashPassword(b.password):null,id]);
     await c.query('UPDATE sessions SET revoked_at=now() WHERE user_id=$1',[id]);
    }else{id=(await c.query('INSERT INTO users(name,login,role,specialty,active,permissions,password_hash) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',[b.name,b.login,b.role,b.specialty,b.active,b.permissions,await hashPassword(b.password!)])).rows[0].id;}
-   await this.audit(c,a,'user.saved',id);return {id};
+   await c.query('UPDATE users SET role_label=$2 WHERE id=$1',[id,b.role_label]);await this.audit(c,a,'user.saved',id);return {id};
   });
  }
+ async shiftRequests(a:Actor){if(a.role!=='ADMIN')throw new ForbiddenException();return (await this.db.query("SELECT r.*,u.name,u.role,u.role_label FROM shift_requests r JOIN users u ON u.id=r.user_id WHERE r.status='PENDING' ORDER BY r.requested_at")).rows;}
+ async approveShift(a:Actor,requestId:string,approve:boolean){if(a.role!=='ADMIN')throw new ForbiddenException();uuid.parse(requestId);return this.db.tx(async c=>{const ref=(await c.query('SELECT user_id FROM shift_requests WHERE id=$1',[requestId])).rows[0];if(!ref)throw new NotFoundException();const user=(await c.query('SELECT active,role FROM users WHERE id=$1 FOR UPDATE',[ref.user_id])).rows[0];if(!user?.active||user.role==='ADMIN')throw new ConflictException('Працівник недоступний');const r=(await c.query("SELECT * FROM shift_requests WHERE id=$1 AND status='PENDING' FOR UPDATE",[requestId])).rows[0];if(!r)throw new ConflictException('Запит уже опрацьовано');if(approve&&!(await c.query('SELECT 1 FROM shifts WHERE user_id=$1 AND ends_at>now() AND starts_at<=now()',[r.user_id])).rows.length)await c.query("INSERT INTO shifts(user_id,ends_at) VALUES($1,now()+interval '12 hours')",[r.user_id]);await c.query('UPDATE shift_requests SET status=$2,decided_by=$3,decided_at=now() WHERE id=$1',[requestId,approve?'APPROVED':'REJECTED',a.id]);await this.audit(c,a,approve?'shift.approved':'shift.rejected',requestId);await this.changed(c);return {ok:true};});}
  async shift(a:Actor,input:any){if(a.role==='ADMIN')throw new ForbiddenException('Адміністратору не потрібна робоча зміна');const b=z.object({start:z.boolean()}).parse(input);
-  await this.db.tx(async c=>{await c.query('SELECT id FROM users WHERE id=$1 FOR UPDATE',[a.id]);if(b.start){if(!await this.onShift(a,c)) await c.query("INSERT INTO shifts(user_id,ends_at) VALUES($1,now()+interval '12 hours')",[a.id]);}else{
+  await this.db.tx(async c=>{await c.query('SELECT id FROM users WHERE id=$1 FOR UPDATE',[a.id]);if(b.start){if(!await this.onShift(a,c)) await c.query("INSERT INTO shift_requests(user_id) VALUES($1) ON CONFLICT(user_id) WHERE status='PENDING' DO NOTHING",[a.id]);}else{
    if((await c.query("SELECT 1 FROM tasks WHERE taken_by=$1 AND status='IN_PROGRESS'",[a.id])).rows.length) throw new ConflictException('Спочатку завершіть або поверніть свої завдання');
    await c.query('UPDATE shifts SET ends_at=now() WHERE user_id=$1 AND ends_at>now()',[a.id]);
-  }await this.audit(c,a,b.start?'shift.started':'shift.ended',a.id);});return {onShift:await this.onShift(a)};
+  }await this.audit(c,a,b.start?'shift.requested':'shift.ended',a.id);});return {onShift:await this.onShift(a)};
  }
  async dashboard(a:Actor){allow(a,'dashboard');
   if(a.role==='NURSE') return {active:0,beds:0,open:await this.onShift(a)?Number((await this.db.query("SELECT count(*) FROM tasks WHERE status='OPEN'")).rows[0].count):0,mine:Number((await this.db.query("SELECT count(*) FROM tasks WHERE taken_by=$1 AND status='IN_PROGRESS'",[a.id])).rows[0].count)};
@@ -111,7 +115,7 @@ export class Clinic {
  async bed(a:Actor,id:string,input:any){allow(a,'rooms.manage');uuid.parse(id);const b=z.object({bed_number:text}).parse(input);return this.db.tx(async c=>{if(!(await c.query('SELECT id FROM rooms WHERE id=$1 AND deleted_at IS NULL FOR UPDATE',[id])).rows.length)throw new ConflictException('Палату видалено або не існує');const r=(await c.query('INSERT INTO beds(room_id,bed_number) VALUES($1,$2) RETURNING *',[id,b.bed_number])).rows[0];await this.audit(c,a,'bed.created',r.id);return r;});}
  async byQr(a:Actor,uid:string){uuid.parse(uid);if(a.role==='NURSE'){allow(a,'qr.read');if(!await this.onShift(a)) throw new ForbiddenException('Почніть зміну');}else allow(a,'patients.read');const b=(await this.db.query('SELECT b.*,r.room_number,a.patient_id FROM beds b JOIN rooms r ON r.id=b.room_id LEFT JOIN admissions a ON a.bed_id=b.id AND a.discharged_at IS NULL WHERE b.qr_uid=$1 AND b.deleted_at IS NULL AND r.deleted_at IS NULL',[uid])).rows[0];if(!b) throw new NotFoundException();return {...b,patient:b.patient_id?await this.patient(a,b.patient_id,true):null};}
  async cabinets(a:Actor){if(!a.permissions.some(p=>['cabinets.manage','tasks.create','appointments.read'].includes(p))) throw new ForbiddenException();return (await this.db.query('SELECT * FROM cabinets ORDER BY name')).rows;}
- async cabinet(a:Actor,input:any){allow(a,'cabinets.manage');const b=z.object({name:text,type:z.enum(['massage','pool','gym','physio'])}).parse(input);return this.db.tx(async c=>{const r=(await c.query('INSERT INTO cabinets(name,type) VALUES($1,$2) RETURNING *',[b.name,b.type])).rows[0];await this.audit(c,a,'cabinet.created',r.id);return r;});}
+ async cabinet(a:Actor,input:any){allow(a,'cabinets.manage');const b=z.object({name:text,type:text}).parse(input);return this.db.tx(async c=>{const r=(await c.query('INSERT INTO cabinets(name,type) VALUES($1,$2) RETURNING *',[b.name,b.type])).rows[0];await this.audit(c,a,'cabinet.created',r.id);return r;});}
  async appointments(a:Actor){if(!a.permissions.some(p=>['cabinets.manage','appointments.read'].includes(p))) throw new ForbiddenException();if(a.role==='NURSE'&&!await this.onShift(a)) throw new ForbiddenException('Почніть зміну');return (await this.db.query("SELECT ap.*,p.name AS patient_name,c.name AS cabinet_name FROM appointments ap JOIN patients p ON p.id=ap.patient_id JOIN cabinets c ON c.id=ap.cabinet_id WHERE ap.starts_at>=now()-interval '7 days' ORDER BY ap.starts_at LIMIT 500")).rows;}
  async appointment(a:Actor,input:any){allow(a,'cabinets.manage');const b=z.object({patient_id:uuid,cabinet_id:uuid,starts_at:date,ends_at:date}).parse(input);
   if(new Date(b.ends_at)<=new Date(b.starts_at)) throw new BadRequestException('Кінець має бути після початку');

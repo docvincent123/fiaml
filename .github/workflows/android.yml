@@ -46,4 +46,4 @@ jobs:
         run: |
           release_tag="android-preview-${GITHUB_SHA:0:12}"
           printf '%s\n' 'Kotlin Compose phone/tablet shell, native patient/task/message screens, existing workflows preserved in WebView. Read docs/ANDROID-2.4.md for migration limits and real-device checks.' > /tmp/rehaflow-release-notes.txt
-          gh release create "$release_tag" android/app/build/outputs/apk/debug/app-debug.apk --draft --target "$GITHUB_SHA" --title 'RehaFlow 2.4.0 - Kotlin Android test build' --notes-file /tmp/rehaflow-release-notes.txt
+          gh release create "$release_tag" android/app/build/outputs/apk/debug/app-debug.apk --draft --target "$GITHUB_SHA" --title 'RehaFlow 2.5.0 - Kotlin Android test build' --notes-file /tmp/rehaflow-release-notes.txt

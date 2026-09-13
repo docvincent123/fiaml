@@ -8,7 +8,7 @@ export const CLINIC='CLINIC';
 export type AuthRequest=Request&{actor:Actor};
 export class AuthGuard implements CanActivate {
  constructor(@Inject(CLINIC) private clinic:Clinic){}
- async canActivate(ctx:ExecutionContext){const req=ctx.switchToHttp().getRequest<AuthRequest>();req.actor=await this.clinic.authenticate(req.headers.authorization?.replace(/^Bearer /i,'')??'');return true;}
+ async canActivate(ctx:ExecutionContext){const req=ctx.switchToHttp().getRequest<AuthRequest>();req.actor=await this.clinic.authenticate(req.headers.authorization?.replace(/^Bearer /i,'')??'');if(req.actor.role!=='ADMIN'&&!['GET','HEAD'].includes(req.method)&&!req.path.includes('/auth/')&&!req.path.endsWith('/shift')&&!await this.clinic.onShift(req.actor))throw new HttpException('Адміністратор ще не підтвердив відкриття зміни',403);return true;}
 }
 @Catch()
 export class Errors implements ExceptionFilter {
@@ -22,7 +22,7 @@ export class Errors implements ExceptionFilter {
 @Controller('api')
 export class PublicController {
  constructor(@Inject(CLINIC) private clinic:Clinic){}
- @Get('health') async health(){await this.clinic.db.query('SELECT 1');return {status:'ok',brand:'QureMed Industries',version:'2.3',apiMajor:1};}
+ @Get('health') async health(){await this.clinic.db.query('SELECT 1');return {status:'ok',brand:'QureMed Industries',version:'2.5',apiMajor:1};}
  @Post('auth/login') login(@Body() b:any,@Req() r:Request){return this.clinic.login(b,r.ip??'unknown');}
 }
 @Controller('api') @UseGuards(AuthGuard)
@@ -42,6 +42,8 @@ export class ApiController {
  @Get('sessions') sessions(@Req() r:AuthRequest){return this.c.sessions(r.actor);}
  @Delete('sessions/:id') revoke(@Req() r:AuthRequest,@Param('id') id:string){return this.c.revoke(r.actor,id);}
  @Post('shift') shift(@Req() r:AuthRequest,@Body() b:any){return this.c.shift(r.actor,b);}
+ @Get('shift/requests') shiftRequests(@Req() r:AuthRequest){return this.c.shiftRequests(r.actor);}
+ @Post('shift/requests/:id/:action') shiftDecision(@Req() r:AuthRequest,@Param('id') id:string,@Param('action') action:string){if(!['approve','reject'].includes(action))throw new HttpException('Невідома дія',400);return this.c.approveShift(r.actor,id,action==='approve');}
  @Get('patients') patients(@Req() r:AuthRequest,@Query() q:any){return this.c.patients(r.actor,q);}
  @Post('patients') register(@Req() r:AuthRequest,@Body() b:any){return this.c.register(r.actor,b);}
  @Get('patients/:id') patient(@Req() r:AuthRequest,@Param('id') id:string){return this.c.patient(r.actor,id);}
