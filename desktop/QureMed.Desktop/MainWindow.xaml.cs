@@ -149,10 +149,10 @@ public sealed class MainWindow : Window {
                 if(!closing&&ReferenceEquals(browser?.CoreWebView2,core)&&!uiReady)Failure("Інтерфейс не завершив завантаження. Оновіть локальний сервер і натисніть «Підключитися».");
             };
             // Same-origin UI messages only; credentials never leave the web session.
-            core.WebMessageReceived+=(_,args)=>{
+            core.WebMessageReceived+=async(_,args)=>{
                 if(!SameOrigin(args.Source))return;
                 try{var message=JsonNode.Parse(args.WebMessageAsJson);var type=message?["type"]?.ToString();
-                    if(type=="quremed.discharge.pdf"){_=ExportDischargePdf();return;}
+                    if(type=="quremed.discharge.pdf"){await ExportDischargePdf();return;}
                     if(type=="quremed.server.settings"){ConnectionToolbar.Visibility=Visibility.Visible;return;}
                     if(type=="quremed.finish-result"&&message?["requestId"]?.ToString()==finishRequest){finishResult?.TrySetResult(message?["ok"]?.GetValue<bool>()==true?null:message?["error"]?.ToString()??"Не вдалося завершити зміну.");return;}
                     if(type!="quremed.ui.ready")return;
