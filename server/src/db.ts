@@ -14,5 +14,6 @@ export class Database implements Queryable {
     if(!(await c.query('SELECT 1 FROM schema_migrations WHERE version=2')).rows.length) await c.query(readFileSync(resolve(__dirname,'../sql/002_care.sql'),'utf8'));
     if(!(await c.query('SELECT 1 FROM schema_migrations WHERE version=3')).rows.length) await c.query(readFileSync(resolve(__dirname,'../sql/003_room_retirement.sql'),'utf8'));
     if(!(await c.query('SELECT 1 FROM schema_migrations WHERE version=4')).rows.length) await c.query(readFileSync(resolve(__dirname,'../sql/004_staff_workflow.sql'),'utf8'));
+    if(!(await c.query('SELECT 1 FROM schema_migrations WHERE version=5')).rows.length) await c.query(readFileSync(resolve(__dirname,'../sql/005_patient_numbers.sql'),'utf8'));
   });}
 }

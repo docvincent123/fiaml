@@ -12,6 +12,26 @@ public sealed class MainWindow : Window {
     readonly HttpClient http = new(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(12) };
     readonly string folder = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QureMed");
     WebView2? browser; Uri? origin; bool connecting; bool started; bool closing; bool uiReady; bool askingClose; bool allowClose; string? finishRequest; TaskCompletionSource<string?>? finishResult;
+    bool exporting;
+    async Task ExportDischargePdf(){
+        if(exporting||browser?.CoreWebView2 is not { } core)return;
+        exporting=true;
+        try{
+            var picker=new Windows.Storage.Pickers.FileSavePicker();
+            WinRT.Interop.InitializeWithWindow.Initialize(picker,WinRT.Interop.WindowNative.GetWindowHandle(this));
+            picker.SuggestedFileName="Patients-RehaFlow";
+            picker.FileTypeChoices.Add("PDF",new System.Collections.Generic.List<string>{".pdf"});
+            var file=await picker.PickSaveFileAsync();
+            if(file==null)return;
+            var settings=core.Environment.CreatePrintSettings();
+            settings.ShouldPrintHeaderAndFooter=false;
+            settings.PageWidth=8.2677;settings.PageHeight=11.6929;
+            if(!await core.PrintToPdfAsync(file.Path,settings))throw new Exception("PDF не створено");
+        }catch(Exception){
+            var dialog=new ContentDialog{Title="Не вдалося зберегти PDF",Content="Перевірте доступ до обраної папки та повторіть збереження.",CloseButtonText="Закрити",XamlRoot=Content.XamlRoot};
+            await dialog.ShowAsync();
+        }finally{exporting=false;}
+    }
     public MainWindow() {
         BuildShell(); Title = "RehaFlow · QureMed Industries";
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1380, 900));
@@ -132,6 +152,7 @@ public sealed class MainWindow : Window {
             core.WebMessageReceived+=(_,args)=>{
                 if(!SameOrigin(args.Source))return;
                 try{var message=JsonNode.Parse(args.WebMessageAsJson);var type=message?["type"]?.ToString();
+                    if(type=="quremed.discharge.pdf"){_=ExportDischargePdf();return;}
                     if(type=="quremed.server.settings"){ConnectionToolbar.Visibility=Visibility.Visible;return;}
                     if(type=="quremed.finish-result"&&message?["requestId"]?.ToString()==finishRequest){finishResult?.TrySetResult(message?["ok"]?.GetValue<bool>()==true?null:message?["error"]?.ToString()??"Не вдалося завершити зміну.");return;}
                     if(type!="quremed.ui.ready")return;

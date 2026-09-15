@@ -65,7 +65,7 @@ export class ApiController {
  @Get('care/alerts') alerts(@Req() r:AuthRequest){return this.c.alerts(r.actor);}
  @Post('appointments') appointment(@Req() r:AuthRequest,@Body() b:any){return this.c.appointment(r.actor,b);}
  @Patch('appointments/:id') appointmentStatus(@Req() r:AuthRequest,@Param('id') id:string,@Body() b:any){return this.c.appointmentStatus(r.actor,id,b);}
- @Get('tasks') tasks(@Req() r:AuthRequest){return this.c.tasks(r.actor);}
+ @Get('tasks') tasks(@Req() r:AuthRequest,@Query() q:any){return this.c.tasks(r.actor,q);}
  @Post('tasks') task(@Req() r:AuthRequest,@Body() b:any){return this.c.task(r.actor,b);}
  @Post('tasks/:id/:action') action(@Req() r:AuthRequest,@Param('id') id:string,@Param('action') action:string,@Body() b:any){return this.c.taskAction(r.actor,id,action,b);}
  @Get('care/duplicates') duplicates(@Req() r:AuthRequest,@Query() q:any){return this.c.duplicates(r.actor,q);}

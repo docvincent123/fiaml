@@ -71,9 +71,11 @@ class NativeActivity : ComponentActivity() {
         NativeSession.initialize(this)
         NativeSession.server=getSharedPreferences("MainActivity",MODE_PRIVATE).getString("server","") ?: ""
         if(NativeSession.token.isEmpty())SessionStore.restore(this)
+        if(savedInstanceState==null)routeIntent(intent)
         setContent { MaterialTheme(colorScheme=palette) { Surface(Modifier.fillMaxSize()) { App() } } }
     }
-    override fun onNewIntent(intent:Intent){super.onNewIntent(intent);setIntent(intent)
+    override fun onNewIntent(intent:Intent){super.onNewIntent(intent);setIntent(intent);routeIntent(intent)}
+    private fun routeIntent(intent:Intent){if(!intent.hasExtra("destination"))return
         model.select(when(intent.getStringExtra("destination")){"/messages"->"messages";"/tasks","/pool"->"tasks";"/settings"->"settings";else->"home"})
     }
     @Composable private fun App(){
@@ -124,6 +126,7 @@ class NativeActivity : ComponentActivity() {
                             Image(painterResource(R.drawable.rehaflow_icon),null,Modifier.size(36.dp));Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)){Text(nav.find{it.key==m.page}?.title ?: "RehaFlow",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold);Text(m.user?.s("role_label")?.takeIf{it.isNotEmpty()} ?: roles[m.user?.s("role")] ?: "",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary)}
                             if(m.loading)CircularProgressIndicator(Modifier.size(18.dp),strokeWidth=2.dp)
+                            if(m.can("messages.use"))IconButton(onClick={m.select("messages")}){Icon(Icons.Outlined.Notifications,"Повідомлення")}
                             IconButton(onClick={close=true}){Icon(Icons.Outlined.Logout,"Завершити роботу")}
                         }
                         if(m.error.isNotEmpty()){ErrorCard(m.error);if(m.uncertain)TextButton(onClick={m.checkedUncertain()}){Text("Стан дії перевірено")}}
@@ -169,6 +172,7 @@ class NativeActivity : ComponentActivity() {
     LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp),contentPadding=PaddingValues(bottom=24.dp)){
         if(m.user?.s("role")!="ADMIN"&&m.user?.optBoolean("onShift")!=true)item{OutlinedButton(enabled=!m.busy,onClick={m.write("/shift",JSONObject().put("start",true))}){Text("Надіслати запит адміністратору")}}
         item{InfoCard("Ваш робочий простір",m.user?.s("name") ?: "",if(m.user?.s("role")=="ADMIN")"Керування центром" else if(m.user?.optBoolean("onShift")==true)"Зміна активна • дані центру поруч" else "Очікує підтвердження адміністратора")}
+        items((m.data as? JSONObject)?.optJSONArray("appointments")?.objects() ?: emptyList()){ap->ActionTile("${localTime(ap.s("starts_at"))} — ${localTime(ap.s("ends_at"))}","${ap.s("patient_name")} · ${ap.s("cabinet_name")}",Icons.Outlined.CalendarMonth){open("/patients?patient="+ap.s("patient_id"))}}
         items((m.data as? JSONObject)?.optJSONArray("metrics")?.objects() ?: emptyList()){metric->ActionTile(metric.s("label"),metric.s("value"),Icons.Outlined.Insights){open(metric.s("path"))}}
         if(m.can("patients.read"))item{ActionTile("Пацієнти","Знайти картку та лікуючого лікаря",Icons.Outlined.People){m.select("patients")}}
         if(m.can("tasks.work")||m.can("tasks.read"))item{ActionTile("Завдання та призначення","План роботи і результати виконання",Icons.Outlined.Assignment){m.select("tasks")}}
@@ -212,25 +216,27 @@ class NativeActivity : ComponentActivity() {
     val ad=p.optJSONArray("admissions")?.objects()?.firstOrNull{it.s("discharged_at").isEmpty()}
     LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp),contentPadding=PaddingValues(bottom=24.dp)){
         item{TextButton(onClick={m.closePatient()}){Icon(Icons.Outlined.ArrowBack,null);Text("До списку")}}
-        item{InfoCard("Пацієнт",p.s("name"),"Дата народження: ${p.s("birth_date").take(10).ifEmpty{"—"}}\nТелефон: ${p.s("phone").ifEmpty{"—"}}")}
+        item{InfoCard("Пацієнт № ${p.s("patient_number")}",p.s("name"),"Дата народження: ${p.s("birth_date").take(10).ifEmpty{"—"}}\nТелефон: ${p.s("phone").ifEmpty{"—"}}")}
         item{InfoCard("Лікуючий лікар",ad?.s("doctor_name")?.ifEmpty{"Не призначено"} ?: "Не призначено","Палата ${ad?.s("room_number")?.ifEmpty{"—"} ?: "—"} • ліжко ${ad?.s("bed_number")?.ifEmpty{"—"} ?: "—"}\nНаправлення: ${ad?.s("referral")?.ifEmpty{"—"} ?: "—"}")}
         item{ActionTile("Повна медична картка","Огляди, спостереження, реабілітація, документи й виписка",Icons.Outlined.FolderShared){open("/patients?patient="+p.s("id"))}}
         if(m.can("tasks.create"))item{ActionTile("Призначити лікування","Ліки, догляд або реабілітація",Icons.Outlined.Medication){open("/tasks")}}
+        items(p.optJSONArray("entries")?.objects() ?: emptyList()){e->InfoCard("Медичний запис · ${localTime(e.s("created_at"))}","Додав: ${e.s("author")}",e.s("body"))}
         items(p.optJSONArray("admissions")?.objects() ?: emptyList()){a->InfoCard("Госпіталізація",a.s("admitted_at").take(10),"${if(a.s("discharged_at").isEmpty())"Триває" else "Виписано: "+a.s("discharged_at").take(10)}\nЛікар: ${a.s("doctor_name").ifEmpty{"—"}}")}
     }
 }
 private val taskStatuses=mapOf("OPEN" to "У пулі","IN_PROGRESS" to "У роботі","COMPLETED" to "Закрито","CANCELLED" to "Скасовано")
 @Composable private fun Tasks(m:ClinicModel,open:(String)->Unit){
     var prescribing by remember {mutableStateOf(false)}
-    var filter by remember {mutableStateOf("OPEN")};var selected by remember {mutableStateOf<JSONObject?>(null)}
+    var filter by remember {mutableStateOf("ALL")};var selected by remember {mutableStateOf<JSONObject?>(null)}
     val rows=(m.data as? JSONArray)?.objects() ?: emptyList()
     Column {
+        Row{FilterChip(selected=!m.archive,onClick={m.archive=false;m.offset=0;m.changed++;filter="ALL"},label={Text("Активні")});Spacer(Modifier.width(8.dp));FilterChip(selected=m.archive,onClick={m.archive=true;m.offset=0;m.changed++;filter="ALL"},label={Text("Архів")})}
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
             FilterChip(selected=filter=="OPEN",onClick={filter="OPEN"},label={Text("У пулі")})
             FilterChip(selected=filter=="IN_PROGRESS",onClick={filter="IN_PROGRESS"},label={Text("У роботі")})
             FilterChip(selected=filter=="ALL",onClick={filter="ALL"},label={Text("Усі")})
         }
-        if(m.can("tasks.create"))TextButton(onClick={prescribing=true}){Icon(Icons.Outlined.AddCircleOutline,null);Text("Нове призначення")}
+        if(m.can("tasks.create"))TextButton(onClick={prescribing=true}){Icon(Icons.Outlined.AddCircleOutline,null);Text("Додати призначення")}
         if(m.can("tasks.work")&&m.user?.optBoolean("onShift")!=true)Button(enabled=!m.busy,onClick={m.write("/shift",JSONObject().put("start",true))}){Text("Запит на відкриття зміни")}
         LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp),contentPadding=PaddingValues(bottom=24.dp)){
             val visible=rows.filter{filter=="ALL"||it.s("status")==filter}
@@ -239,6 +245,7 @@ private val taskStatuses=mapOf("OPEN" to "У пулі","IN_PROGRESS" to "У ро
                 Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
                     Text(t.s("patient_name"),style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold,modifier=Modifier.fillMaxWidth().clickable{if(m.can("patients.read"))open("/patients?patient="+t.s("patient_id"))})
                     Text("${taskStatuses[t.s("status")] ?: ""} • ${localTime(t.s("scheduled_at"))}",color=MaterialTheme.colorScheme.primary)
+                    Text("Додав: ${t.s("creator").ifEmpty{"—"}} · ${localTime(t.s("created_at"))}",style=MaterialTheme.typography.bodySmall)
                     Text(t.s("description"));if(t.s("medication").isNotEmpty())Text("${t.s("medication")} • ${t.s("dose")} ${t.s("dose_unit")} • ${t.s("route")}")
                     Text("Палата ${t.s("room_number").ifEmpty{"—"}} • ${t.s("cabinet_name")}",style=MaterialTheme.typography.bodySmall)
                     if(t.optBoolean("not_done"))Text("Не виконано: ${t.s("outcome")}",color=MaterialTheme.colorScheme.error)
@@ -250,6 +257,7 @@ private val taskStatuses=mapOf("OPEN" to "У пулі","IN_PROGRESS" to "У ро
                     if(m.can("tasks.work")&&t.s("status")=="IN_PROGRESS"&&t.s("taken_by")==m.user?.s("id"))Button(enabled=!m.busy&&!m.uncertain,onClick={selected=t}){Text("Записати результат")}
                 }
             }}
+            item{Row{TextButton(enabled=m.offset>0,onClick={m.offset=(m.offset-100).coerceAtLeast(0);m.changed++}){Text("Назад")};TextButton(enabled=rows.size==100,onClick={m.offset+=100;m.changed++}){Text("Далі")}}}
             item{OutlinedButton(onClick={open(if(m.can("tasks.work"))"/pool" else "/tasks")}){Text("Передача зміни та всі дії")}}
         }
     }
@@ -274,6 +282,7 @@ private fun localTime(value:String):String=runCatching{java.time.OffsetDateTime.
         if(rows.isEmpty())item{Text(if(m.loading)"Завантаження…" else "Повідомлень поки немає")}
         items(rows,key={it.s("id")}){message->Card(Modifier.fillMaxWidth()){
             Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+                if(message.s("patient_id").isNotEmpty()&&m.can("patients.read"))TextButton(onClick={open("/patients?patient="+message.s("patient_id"))}){Text("Відкрити картку пацієнта")}
                 Text(message.s("sender"),style=MaterialTheme.typography.titleMedium);if(message.optBoolean("urgent"))Text("Терміново",color=MaterialTheme.colorScheme.error)
                 Text(message.s("body"));Text(localTime(message.s("created_at")),style=MaterialTheme.typography.bodySmall)
                 if(message.s("recipient_id")==m.user?.s("id")&&message.s("read_at").isEmpty())TextButton(enabled=!m.busy&&!m.uncertain,onClick={m.write("/care/messages/${message.s("id")}/read")}){Text("Позначити прочитаним")}

@@ -18,6 +18,7 @@ class ClinicModel : ViewModel() {
     var loading by mutableStateOf(false); private set
     var search by mutableStateOf("")
     var offset by mutableIntStateOf(0)
+    var archive by mutableStateOf(false)
     var changed by mutableIntStateOf(0)
     var synchronizedAt by mutableStateOf(""); private set
     var uncertain by mutableStateOf(false); private set
@@ -48,7 +49,7 @@ class ClinicModel : ViewModel() {
                 val result = ClinicApi.request("/auth/login", "POST", JSONObject().put("login", login.trim()).put("password", password).put("device", device), bearer = "") as JSONObject
                 NativeSession.token = result.getString("token")
                 user = result.getJSONObject("user"); NativeSession.userId = user!!.getString("id")
-                page = "home"; changed++; done()
+                changed++; done()
             } catch (e: Exception) { fail(e) } finally { busy = false }
         }
     }
@@ -71,7 +72,7 @@ class ClinicModel : ViewModel() {
             val path = when (selected) {
                 "home" -> "/operations"
                 "patients" -> "/patients?status=ACTIVE&offset=$offset&q=" + java.net.URLEncoder.encode(search, "UTF-8")
-                "tasks" -> "/tasks"
+                "tasks" -> "/tasks?archive=$archive&offset=$offset"
                 "messages" -> "/care/messages"
                 else -> null
             }
