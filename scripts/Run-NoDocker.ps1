@@ -22,6 +22,18 @@ $env:Path = $machinePath + ';' + $userPath
 $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
 if (-not $npm) { throw 'Node.js was not found. Run the installer again.' }
 
+# Re-evaluate the connected LAN on each start, including after a Wi-Fi change.
+. (Join-Path $PSScriptRoot 'Server-Network.ps1')
+if ($env:PUBLIC_URL -and $env:PUBLIC_URL.StartsWith('https://')) {
+    $currentIp = Get-QureMedServerIp
+    if (([Uri]$env:PUBLIC_URL).Host -ne $currentIp) {
+        & (Join-Path $PSScriptRoot 'Enable-LanHttps.ps1') -ServerIp $currentIp
+        $env:PUBLIC_URL = 'https://' + $currentIp
+        $env:ALLOWED_ORIGINS = $env:PUBLIC_URL
+        Write-Host 'Server address updated. Use the new Phone address on staff devices. The existing CA and database were preserved.' -ForegroundColor Yellow
+    }
+}
+
 Write-Host ''
 Write-Host 'QureMed Industries - RehaFlow local server' -ForegroundColor Cyan
 Write-Host ('Computer: http://localhost:' + $env:PORT) -ForegroundColor Green

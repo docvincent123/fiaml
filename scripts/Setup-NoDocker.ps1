@@ -40,31 +40,8 @@ function Find-PostgresBin {
     }
     return $null
 }
-function Select-ServerIp {
-    $addresses = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-        Where-Object {
-            $_.IPAddress -notlike '127.*' -and
-            $_.IPAddress -notlike '169.254.*' -and
-            $_.PrefixOrigin -ne 'WellKnown' -and
-            $_.InterfaceAlias -notmatch 'Docker|WSL|Virtual|Bluetooth|Loopback'
-        } |
-        Sort-Object InterfaceMetric |
-        Select-Object -ExpandProperty IPAddress -Unique
-    $suggested = if ('192.168.1.106' -in $addresses) { '192.168.1.106' } else { $addresses | Select-Object -First 1 }
-    if ($suggested) {
-        $entered = Read-Host "IPv4 this computer uses on Wi-Fi [$suggested]"
-        if ([string]::IsNullOrWhiteSpace($entered)) { $entered = $suggested }
-    } else {
-        $entered = Read-Host 'IPv4 this computer uses on Wi-Fi (example 192.168.1.106)'
-    }
-    $parsed = $null
-    if (-not [Net.IPAddress]::TryParse($entered, [ref]$parsed) -or
-        $parsed.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or
-        $parsed.ToString() -like '127.*') {
-        throw 'Enter a valid local IPv4 address from ipconfig.'
-    }
-    return $parsed.ToString()
-}
+. (Join-Path $PSScriptRoot 'Server-Network.ps1')
+function Select-ServerIp { return Get-QureMedServerIp }
 
 if (-not (Test-Administrator)) { throw 'Run Start-QureMed-Without-Docker.cmd as administrator.' }
 if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {

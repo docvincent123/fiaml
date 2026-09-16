@@ -9,14 +9,15 @@ foreach ($line in [IO.File]::ReadAllLines($configPath)) {
     $split = $line.IndexOf('=')
     if ($split -gt 0 -and -not $line.StartsWith('#')) { $settings[$line.Substring(0,$split)] = $line.Substring($split+1) }
 }
-if (-not $ServerIp) {
-    if ($settings['PUBLIC_URL']) { $ServerIp = ([Uri]$settings['PUBLIC_URL']).Host }
-    else { $ServerIp = '192.168.1.106' }
-}
+. (Join-Path $PSScriptRoot 'Server-Network.ps1')
+if (-not $ServerIp) { $ServerIp = Get-QureMedServerIp }
 $parsed = $null
 if (-not [Net.IPAddress]::TryParse($ServerIp,[ref]$parsed) -or $parsed.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) { throw 'Use the IPv4 address of THIS computer.' }
 $addresses = @(Get-NetIPAddress -AddressFamily IPv4 | Select-Object -ExpandProperty IPAddress)
 if ($ServerIp -notin $addresses) { throw "This computer does not have IP $ServerIp. Run ipconfig and use its Wi-Fi IPv4 address, not the router gateway." }
+if ($settings['PUBLIC_URL'] -and $settings['PUBLIC_URL'] -ne ('https://' + $ServerIp) -and (Get-NetTCPConnection -LocalPort 443 -State Listen -ErrorAction SilentlyContinue)) {
+    throw 'Stop the running RehaFlow server before changing its network address. Close its server window with Ctrl+C, then start again.'
+}
 $caddy = Get-Command caddy.exe -ErrorAction SilentlyContinue
 if (-not $caddy) {
     & winget.exe install --exact --id CaddyServer.Caddy --accept-package-agreements --accept-source-agreements --disable-interactivity
