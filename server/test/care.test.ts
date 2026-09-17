@@ -12,7 +12,7 @@ let c:Care,db:Database,close:()=>Promise<void>,admin:Actor,d1:Actor,d2:Actor,d3:
 async function actor(role:string,name:string):Promise<Actor>{const u=(await db.query('INSERT INTO users(name,login,password_hash,role,specialty) VALUES($1,$2,$3,$4,$5) RETURNING *',[name,'care-'+name,'not-a-login-hash',role,'Тест'])).rows[0];return {id:u.id,name,role,specialty:'Тест',permissions:permissions(u),sid:crypto.randomUUID()};}
 before(async()=>{
  if(process.env.TEST_DATABASE_URL){const control=new Database(process.env.TEST_DATABASE_URL);const schema='care_'+crypto.randomUUID().replaceAll('-','');await control.query('CREATE SCHEMA '+schema);const url=new URL(process.env.TEST_DATABASE_URL);url.searchParams.set('options','-c search_path='+schema);db=new Database(url.toString());await db.migrate();close=async()=>{await db.pool.end();await control.query('DROP SCHEMA '+schema+' CASCADE');await control.pool.end()};}
- else{const pg=new PGlite();for(const file of ['001_initial.sql','002_care.sql','003_room_retirement.sql','004_staff_workflow.sql','005_patient_numbers.sql'])await pg.exec(readFileSync(new URL('../sql/'+file,import.meta.url),'utf8'));let queue=Promise.resolve();db={query:(q:string,v:any[]=[])=>pg.query(q,v),tx:async(fn:any)=>{let release!:()=>void;const before=queue;queue=new Promise<void>(r=>release=r);await before;try{return await pg.transaction(tx=>fn({query:(q:string,v:any[]=[])=>tx.query(q,v)}))}finally{release()}}} as any;close=()=>pg.close();}
+ else{const pg=new PGlite();for(const file of ['001_initial.sql','002_care.sql','003_room_retirement.sql','004_staff_workflow.sql','005_patient_numbers.sql','006_request_receipts.sql'])await pg.exec(readFileSync(new URL('../sql/'+file,import.meta.url),'utf8'));let queue=Promise.resolve();db={query:(q:string,v:any[]=[])=>pg.query(q,v),tx:async(fn:any)=>{let release!:()=>void;const before=queue;queue=new Promise<void>(r=>release=r);await before;try{return await pg.transaction(tx=>fn({query:(q:string,v:any[]=[])=>tx.query(q,v)}))}finally{release()}}} as any;close=()=>pg.close();}
  c=new Care(db,'test-secret-with-at-least-thirty-two-characters');
  admin=await actor('ADMIN','careadmin');d1=await actor('DOCTOR','first');d2=await actor('DOCTOR','second');d3=await actor('DOCTOR','third');n1=await actor('NURSE','nursefirst');n2=await actor('NURSE','nursesecond');therapist=await actor('THERAPIST','therapist');
 });
@@ -203,4 +203,16 @@ test('Home appointments show only assigned specialist with exact schedule and pa
  const ap=await c.appointment(d1,{patient_id:p.id,cabinet_id:cabinet.id,staff_id:therapist.id,starts_at:'2035-06-10T10:00:00Z',ends_at:'2035-06-10T10:30:00Z'});
  const own=(await c.operations(therapist)).appointments.find(x=>x.id===ap.id);assert.equal(own.patient_id,p.id);assert.ok(own.starts_at);assert.ok(own.ends_at);
  assert.equal((await c.operations(d2)).appointments.some(x=>x.id===ap.id),false);
+});
+
+test('Prescription retries are atomic, scoped to author, and reject changed payloads',async()=>{
+ const p=await patient(),request_id=crypto.randomUUID();
+ const input={request_id,patient_id:p.id,description:'Retry test',task_type:'Догляд',scheduled_at:'2031-01-01T10:00:00Z',repeat_count:3};
+ const [first,retry]=await Promise.all([c.task(d1,input),c.task(d1,input)]);
+ assert.equal(first.id,retry.id);
+ assert.equal(Number((await db.query('SELECT count(*) FROM tasks WHERE patient_id=$1',[p.id])).rows[0].count),3);
+ await assert.rejects(()=>c.task(d1,{...input,description:'Changed'}),/іншого призначення/);
+ const other=await c.task(d2,input);assert.notEqual(other.id,first.id);
+ const restarted=new Care(db,'test-secret-with-at-least-thirty-two-characters');
+ assert.equal((await restarted.task(d1,input)).id,first.id);
 });

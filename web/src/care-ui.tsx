@@ -46,6 +46,7 @@ export function MessagesPage({user,notify}:Props){const{data:messages,error}=use
 
 const routes=[{value:'Перорально',label:'Через рот',icon:Pill},{value:'Внутрішньовенно',label:'Внутрішньовенно',icon:Droplets},{value:'Внутрішньом’язово',label:'Внутрішньом’язово',icon:Syringe},{value:'Підшкірно',label:'Підшкірно',icon:Syringe},{value:'Інгаляційно',label:'Інгаляція',icon:Wind},{value:'Місцево',label:'Місцево',icon:Bandage}];
 function CourseForm({close,done}:{close:()=>void;done:()=>void}){
+ const [requestId]=useState(()=>crypto.randomUUID());
  const{data:patients,error:patientError}=useCareData('/patients'),{data:cabinets,error:cabinetError}=useCareData('/cabinets');
  const[category,setCategory]=useState('procedure'),[route,setRoute]=useState(''),[name,setName]=useState(''),[count,setCount]=useState(1),[hours,setHours]=useState(24);
  const medicine=category==='medicine';
@@ -56,7 +57,7 @@ function CourseForm({close,done}:{close:()=>void;done:()=>void}){
   if(medicine&&!method)throw Error('Оберіть спосіб введення.');
   const note=str(d,'description').trim();
   const description=medicine?[name,str(d,'dose')+' '+str(d,'dose_unit'),method,note].filter(Boolean).join(' · '):[name,note].filter(Boolean).join(' · ');
-  await api('/tasks','POST',{patient_id:d.get('patient_id'),description,task_type:medicine?'Медикаментозне призначення':name,scheduled_at:iso(d.get('scheduled_at')),cabinet_id:d.get('cabinet_id')||null,executor_role:medicine?'NURSE':d.get('executor_role'),medication:medicine?name:'',dose:medicine?str(d,'dose'):'',dose_unit:medicine?str(d,'dose_unit'):'',route:medicine?method:'',repeat_count:count,interval_hours:hours});
+  await api('/tasks','POST',{request_id:requestId,patient_id:d.get('patient_id'),description,task_type:medicine?'Медикаментозне призначення':name,scheduled_at:iso(d.get('scheduled_at')),cabinet_id:d.get('cabinet_id')||null,executor_role:medicine?'NURSE':d.get('executor_role'),medication:medicine?name:'',dose:medicine?str(d,'dose'):'',dose_unit:medicine?str(d,'dose_unit'):'',route:medicine?method:'',repeat_count:count,interval_hours:hours});
   done();
  }}>
  <Field label="Пацієнт"><select required name="patient_id"><option value="">Оберіть пацієнта</option>{patients?.map((p:any)=><option value={p.id} key={p.id}>{p.name} · {p.doctor_name||'Лікаря не призначено'}</option>)}</select></Field>

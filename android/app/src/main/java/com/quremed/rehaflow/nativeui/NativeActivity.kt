@@ -293,6 +293,7 @@ private fun localTime(value:String):String=runCatching{java.time.OffsetDateTime.
 }
 
 @Composable private fun Prescription(m:ClinicModel,close:()->Unit){
+    val requestId=rememberSaveable {java.util.UUID.randomUUID().toString()}
     var patients by remember {mutableStateOf(emptyList<JSONObject>())};var selected by remember {mutableStateOf<JSONObject?>(null)}
     var query by remember {mutableStateOf("")};var loadError by remember {mutableStateOf("")}
     var description by remember {mutableStateOf("")};var medication by remember {mutableStateOf("")}
@@ -333,7 +334,7 @@ private fun localTime(value:String):String=runCatching{java.time.OffsetDateTime.
         }
         if(m.error.isNotEmpty())ErrorCard(m.error)
     }},confirmButton={TextButton(enabled=!m.busy&&!m.uncertain&&selected!=null&&description.isNotBlank()&&(count.toIntOrNull() ?: 0) in 1..90&&(interval.toDoubleOrNull() ?: 0.0) in 1.0..720.0&&(kind!="Ліки"||(medication.isNotBlank()&&dose.isNotBlank()&&unit.isNotBlank()&&route.isNotBlank())),onClick={
-        if(!reviewing){reviewing=true}else m.write("/tasks",JSONObject().put("patient_id",selected!!.s("id")).put("description",description).put("task_type",kind).put("executor_role",executor).put("medication",medication).put("dose",dose).put("dose_unit",unit).put("route",route).put("scheduled_at",scheduled.toInstant().toString()).put("repeat_count",count.toInt()).put("interval_hours",interval.toDouble())){close()}
+        if(!reviewing){reviewing=true}else m.write("/tasks",JSONObject().put("request_id",requestId).put("patient_id",selected!!.s("id")).put("description",description).put("task_type",kind).put("executor_role",executor).put("medication",medication).put("dose",dose).put("dose_unit",unit).put("route",route).put("scheduled_at",scheduled.toInstant().toString()).put("repeat_count",count.toInt()).put("interval_hours",interval.toDouble())){close()}
     }){Text(if(reviewing)"Призначити" else "Перевірити")}},dismissButton={TextButton(enabled=!m.busy,onClick={if(reviewing)reviewing=false else close()}){Text(if(reviewing)"Редагувати" else "Скасувати")}})
 }
 @Composable private fun Choice(label:String,value:String,options:List<String>,change:(String)->Unit){
