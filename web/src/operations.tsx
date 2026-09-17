@@ -4,7 +4,25 @@ import type {User} from './api';
 import {NavLink} from 'react-router-dom';
 export function Operations({user}:{user:User}){
  const {data,error}=useCareData('/operations');
- return <section className="panel padded"><h2>Сьогодні · {roleNames[user.role]}</h2>{error&&<p className="error">{error}</p>}{data&&<><div className="quick-grid">{data.metrics.map((m:any)=><NavLink className="quick" key={m.label} to={m.path}><div><h3>{m.value}</h3><p>{m.label}</p></div></NavLink>)}</div>{data.staff&&<><h3>На зміні</h3>{data.staff.length?data.staff.map((s:any)=><p key={s.id}>{s.name} · {roleNames[s.role]}</p>):<p>Активних змін немає</p>}</>}{data.maintenance&&<><h3>Стан сервера</h3><p>База даних відповідає · API {data.version}</p><p>Остання копія: {data.maintenance.backup?.completedAt?new Date(data.maintenance.backup.completedAt).toLocaleString('uk-UA'):'Ще не підтверджена'}</p>{(!data.maintenance.backup?.completedAt||Date.now()-new Date(data.maintenance.backup.completedAt).getTime()>36*3600000)&&<p className="error">Немає підтвердженої копії за останні 36 годин. Перевірте завдання резервування.</p>}<p>Перевірка відновлення: {data.maintenance.restore?.verifiedAt?new Date(data.maintenance.restore.verifiedAt).toLocaleString('uk-UA'):'Ще не виконана'}</p><p className="muted">Резервна копія на цьому ж диску не захищає від його поломки. Зберігайте додаткову копію на окремому носії.</p></>}</>}</section>
+ return <div className="ops-layout">
+ <section className="panel padded">
+ <div className="ops-heading"><h2>Сьогодні · {roleNames[user.role]}</h2></div>
+ {error&&<p className="error">{error}</p>}
+ {!data&&!error&&<p className="muted" role="status">Завантажуємо робочі показники…</p>}
+ {data&&<div className="ops-metrics">{data.metrics.map((m:any)=><NavLink className="ops-metric" key={m.label} to={m.path}><strong>{m.value}</strong><span>{m.label}</span></NavLink>)}</div>}
+ </section>
+ {data&&<section className="panel padded">
+ <div className="ops-heading"><h2>{data.staff?'Команда на зміні':'Найближчі процедури'}</h2></div>
+ {data.staff?(data.staff.length?data.staff.map((s:any)=><div className="ops-staff" key={s.id}><span className="avatar" aria-hidden="true">{s.name.slice(0,2)}</span><div><strong>{s.name}</strong><small className="muted">{roleNames[s.role]||s.role}</small></div></div>):<p className="muted">Активних змін поки немає.</p>):(data.appointments?.length?data.appointments.map((a:any)=><NavLink className="ops-staff" key={a.id} to={'/patients?patient='+encodeURIComponent(a.patient_id)}><span className="pill">{new Date(a.starts_at).toLocaleTimeString('uk-UA',{hour:'2-digit',minute:'2-digit'})}</span><div><strong>{a.patient_name}</strong><small className="muted">{new Date(a.starts_at).toLocaleDateString('uk-UA')} · {a.cabinet_name}</small></div></NavLink>):<p className="muted">Найближчих записів немає.</p>)}
+ </section>}
+ {data?.maintenance&&<section className="panel padded ops-full"><div className="ops-heading"><h2>Стан сервера</h2><span className="pill">API {data.version}</span></div>
+ <p>База даних відповідає</p>
+ <div className="ops-status"><p>Остання копія: {data.maintenance.backup?.completedAt?new Date(data.maintenance.backup.completedAt).toLocaleString('uk-UA'):'Ще не підтверджена'}</p>
+ {(!data.maintenance.backup?.completedAt||Date.now()-new Date(data.maintenance.backup.completedAt).getTime()>36*3600000)&&<p className="error">Немає підтвердженої копії за останні 36 годин. Перевірте завдання резервування.</p>}</div>
+ <div className="ops-status"><p>Перевірка відновлення: {data.maintenance.restore?.verifiedAt?new Date(data.maintenance.restore.verifiedAt).toLocaleString('uk-UA'):'Ще не виконана'}</p></div>
+ <p className="muted">Зберігайте додаткову резервну копію на окремому носії: копія на тому самому диску не захищає від його поломки.</p>
+ </section>}
+ </div>
 }
 export function PatientTimeline({patient:p}:{patient:any}){
  const [limit,setLimit]=useState(30);
