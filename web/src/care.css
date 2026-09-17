@@ -34,3 +34,21 @@ summary { cursor: pointer; padding: 4px; }
 @media(max-width:560px){.prescription-routes{grid-template-columns:repeat(2,minmax(0,1fr))}.choice{font-size:13px;flex-direction:column;gap:6px}.brand-logo{width:40px;height:40px;flex-basis:40px}}
 
 .message-dialog{width:min(440px,calc(100vw - 32px));max-height:80dvh;overflow:auto;margin:auto;padding:24px;background:#101e28;color:#edf7ff;border:1px solid #38565f;border-radius:18px}.message-dialog::backdrop{background:#0008}.message-dialog article{padding:16px 0;border-bottom:1px solid #38565f}.message-dialog p{white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* Touch-friendly clinical workspace, including embedded Android forms. */
+.patient-qr{padding:16px;margin:16px 0;border:1px solid var(--border);border-radius:16px;background:#10252b;display:grid;justify-items:start;gap:12px}
+.patient-qr img{background:white;border-radius:12px;max-width:100%;height:auto}
+.care-dialog input,.care-dialog select,.care-dialog textarea{font-size:16px;min-height:48px}
+.care-dialog textarea{min-height:112px;line-height:1.6;resize:vertical}
+.care-tabs{overflow-x:auto;flex-wrap:nowrap;padding-bottom:8px;scrollbar-width:thin}
+.care-tabs button{flex-shrink:0;min-height:44px}
+.care-dialog button{min-height:44px}
+.patient-identity{border-left:4px solid #79e1c0;background:linear-gradient(110deg,#153530,#122333);border-radius:16px}
+.care-dialog form fieldset{min-width:0}
+@media(max-width:640px){
+ .care-dialog{width:100%;max-width:100%;max-height:100dvh;margin:0;border-radius:0;padding:16px;padding-bottom:max(24px,env(safe-area-inset-bottom))}
+ .care-dialog .dialog-head{position:sticky;top:-16px;background:#101e28;z-index:2;padding:16px 0;border-bottom:1px solid var(--border)}
+ .prescription-types{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .care-dialog .submit{width:100%;min-height:52px}
+}
+@media(prefers-reduced-motion:reduce){.choice{transition:none}}

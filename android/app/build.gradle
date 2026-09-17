@@ -6,8 +6,8 @@ android {
         applicationId 'com.quremed.rehaflow'
         minSdk 26
         targetSdk 35
-        versionCode 8
-        versionName '2.5.1'
+        versionCode 9
+        versionName '2.6.0'
     }
     buildFeatures { compose true }
     kotlinOptions { jvmTarget = "17" }
@@ -16,6 +16,7 @@ android {
 }
 
 dependencies {
+ implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
  implementation platform('androidx.compose:compose-bom:2024.12.01')
  implementation 'androidx.activity:activity-compose:1.9.3'
  implementation 'androidx.compose.material3:material3'

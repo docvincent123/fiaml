@@ -57,6 +57,21 @@ private val destinations=listOf(Destination("home","Огляд",Icons.Outlined.D
 
 class NativeActivity : ComponentActivity() {
     private val model: ClinicModel by viewModels()
+    private val scanner = registerForActivityResult(com.journeyapps.barcodescanner.ScanContract()) { result ->
+        result.contents?.let { content ->
+            try {
+                require(model.user!=null && model.can("patients.read")) { "Увійдіть з доступом до карток пацієнтів." }
+                val patientId=PatientQr.parse(content,NativeSession.server)
+                model.select("patients");model.openPatient(patientId)
+            } catch(e:Exception){model.fail(e)}
+        }
+    }
+    private fun scanPatient(){
+        scanner.launch(com.journeyapps.barcodescanner.ScanOptions()
+            .setDesiredBarcodeFormats(com.journeyapps.barcodescanner.ScanOptions.QR_CODE)
+            .setPrompt("Наведіть камеру на QR-код картки пацієнта")
+            .setBeepEnabled(false).setBarcodeImageEnabled(false).setOrientationLocked(false))
+    }
     private val permission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { if(it) startAlerts() }
     private fun startAlerts() {
         if (NativeSession.token.isEmpty() || !getSharedPreferences("shift-alerts",MODE_PRIVATE).getBoolean("enabled",true)) return
@@ -126,6 +141,7 @@ class NativeActivity : ComponentActivity() {
                             Image(painterResource(R.drawable.rehaflow_icon),null,Modifier.size(36.dp));Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)){Text(nav.find{it.key==m.page}?.title ?: "RehaFlow",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold);Text(m.user?.s("role_label")?.takeIf{it.isNotEmpty()} ?: roles[m.user?.s("role")] ?: "",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary)}
                             if(m.loading)CircularProgressIndicator(Modifier.size(18.dp),strokeWidth=2.dp)
+                            if(m.can("patients.read"))IconButton(onClick={scanPatient()}){Icon(Icons.Outlined.QrCodeScanner,"Сканувати QR пацієнта")}
                             if(m.can("messages.use"))IconButton(onClick={m.select("messages")}){Icon(Icons.Outlined.Notifications,"Повідомлення")}
                             IconButton(onClick={close=true}){Icon(Icons.Outlined.Logout,"Завершити роботу")}
                         }
@@ -213,13 +229,18 @@ class NativeActivity : ComponentActivity() {
 }
 @Composable private fun PatientDetail(m:ClinicModel,open:(String)->Unit){
     val p=m.patient ?: return
+    var prescribing by remember(p.s("id")) {mutableStateOf(false)}
+    var examining by remember(p.s("id")) {mutableStateOf(false)}
+    if(prescribing)Prescription(m,{prescribing=false},p)
+    if(examining)Examination(m,p){examining=false}
     val ad=p.optJSONArray("admissions")?.objects()?.firstOrNull{it.s("discharged_at").isEmpty()}
     LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp),contentPadding=PaddingValues(bottom=24.dp)){
         item{TextButton(onClick={m.closePatient()}){Icon(Icons.Outlined.ArrowBack,null);Text("До списку")}}
         item{InfoCard("Пацієнт № ${p.s("patient_number")}",p.s("name"),"Дата народження: ${p.s("birth_date").take(10).ifEmpty{"—"}}\nТелефон: ${p.s("phone").ifEmpty{"—"}}")}
         item{InfoCard("Лікуючий лікар",ad?.s("doctor_name")?.ifEmpty{"Не призначено"} ?: "Не призначено","Палата ${ad?.s("room_number")?.ifEmpty{"—"} ?: "—"} • ліжко ${ad?.s("bed_number")?.ifEmpty{"—"} ?: "—"}\nНаправлення: ${ad?.s("referral")?.ifEmpty{"—"} ?: "—"}")}
         item{ActionTile("Повна медична картка","Огляди, спостереження, реабілітація, документи й виписка",Icons.Outlined.FolderShared){open("/patients?patient="+p.s("id"))}}
-        if(m.can("tasks.create"))item{ActionTile("Призначити лікування","Ліки, догляд або реабілітація",Icons.Outlined.Medication){open("/tasks")}}
+        if(ad!=null && m.can("tasks.create"))item{ActionTile("Призначити лікування","Пацієнта вже обрано · ліки, догляд, реабілітація",Icons.Outlined.Medication){prescribing=true}}
+        if(ad!=null && m.can("clinical.write"))item{ActionTile("Новий огляд","Скарги, діагноз, алергії та план",Icons.Outlined.EditNote){examining=true}}
         items(p.optJSONArray("entries")?.objects() ?: emptyList()){e->InfoCard("Медичний запис · ${localTime(e.s("created_at"))}","Додав: ${e.s("author")}",e.s("body"))}
         items(p.optJSONArray("admissions")?.objects() ?: emptyList()){a->InfoCard("Госпіталізація",a.s("admitted_at").take(10),"${if(a.s("discharged_at").isEmpty())"Триває" else "Виписано: "+a.s("discharged_at").take(10)}\nЛікар: ${a.s("doctor_name").ifEmpty{"—"}}")}
     }
@@ -261,7 +282,7 @@ private val taskStatuses=mapOf("OPEN" to "У пулі","IN_PROGRESS" to "У ро
             item{OutlinedButton(onClick={open(if(m.can("tasks.work"))"/pool" else "/tasks")}){Text("Передача зміни та всі дії")}}
         }
     }
-    if(prescribing)Prescription(m){prescribing=false}
+    if(prescribing)Prescription(m,{prescribing=false})
     selected?.let{t->
         var outcome by remember(t.s("id")){mutableStateOf("")};var confirmed by remember(t.s("id")){mutableStateOf(false)};var action by remember(t.s("id")){mutableStateOf("complete")}
         AlertDialog(onDismissRequest={if(!m.busy)selected=null},title={Text("Результат виконання")},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
@@ -292,9 +313,9 @@ private fun localTime(value:String):String=runCatching{java.time.OffsetDateTime.
     }
 }
 
-@Composable private fun Prescription(m:ClinicModel,close:()->Unit){
+@Composable private fun Prescription(m:ClinicModel,close:()->Unit,initialPatient:JSONObject?=null){
     val requestId=rememberSaveable {java.util.UUID.randomUUID().toString()}
-    var patients by remember {mutableStateOf(emptyList<JSONObject>())};var selected by remember {mutableStateOf<JSONObject?>(null)}
+    var patients by remember {mutableStateOf(emptyList<JSONObject>())};var selected by remember {mutableStateOf<JSONObject?>(initialPatient)}
     var query by remember {mutableStateOf("")};var loadError by remember {mutableStateOf("")}
     var description by remember {mutableStateOf("")};var medication by remember {mutableStateOf("")}
     var dose by remember {mutableStateOf("")};var unit by remember {mutableStateOf("")};var route by remember {mutableStateOf("")}
@@ -340,4 +361,32 @@ private fun localTime(value:String):String=runCatching{java.time.OffsetDateTime.
 @Composable private fun Choice(label:String,value:String,options:List<String>,change:(String)->Unit){
     var expanded by remember {mutableStateOf(false)}
     Box{OutlinedButton(onClick={expanded=true},modifier=Modifier.fillMaxWidth()){Text("$label: $value",Modifier.weight(1f));Icon(Icons.Outlined.ExpandMore,null)};DropdownMenu(expanded,{expanded=false}){options.forEach{item->DropdownMenuItem(text={Text(item)},onClick={change(item);expanded=false})}}}
+}
+
+@Composable private fun Examination(m:ClinicModel,patient:JSONObject,close:()->Unit){
+    var complaints by remember {mutableStateOf("")}
+    var diagnosis by remember {mutableStateOf("")}
+    var allergies by remember {mutableStateOf("")}
+    var plan by remember {mutableStateOf("")}
+    var summary by remember {mutableStateOf("")}
+    AlertDialog(
+        onDismissRequest={if(!m.busy)close()},
+        title={Column{Text("Огляд лікаря");Text(patient.s("name"),style=MaterialTheme.typography.titleSmall)}},
+        text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
+            Text("Запис буде збережено з вашим ім’ям і часом. Заповнюйте лише перевірені дані.")
+            OutlinedTextField(value=complaints,onValueChange={complaints=it.take(4000)},label={Text("Скарги")},minLines=2,modifier=Modifier.fillMaxWidth())
+            OutlinedTextField(value=diagnosis,onValueChange={diagnosis=it.take(4000)},label={Text("Діагноз / робочий висновок")},minLines=2,modifier=Modifier.fillMaxWidth())
+            OutlinedTextField(value=allergies,onValueChange={allergies=it.take(4000)},label={Text("Алергії — вкажіть, якщо не уточнено")},modifier=Modifier.fillMaxWidth())
+            OutlinedTextField(value=plan,onValueChange={plan=it.take(10000)},label={Text("План лікування")},minLines=3,modifier=Modifier.fillMaxWidth())
+            OutlinedTextField(value=summary,onValueChange={summary=it.take(20000)},label={Text("Підсумок огляду")},minLines=2,modifier=Modifier.fillMaxWidth())
+            if(m.error.isNotEmpty())ErrorCard(m.error)
+            if(m.uncertain)Text("Збереження не підтверджено. Перевірте історію картки перед повторною дією.")
+        }},
+        confirmButton={TextButton(enabled=!m.busy&&!m.uncertain&&listOf(complaints,diagnosis,allergies,plan,summary).all{it.isNotBlank()},onClick={
+            m.write("/patients/"+patient.s("id")+"/entries",JSONObject().put("kind","ASSESSMENT").put("body",summary).put("data",JSONObject().put("complaints",complaints).put("diagnosis",diagnosis).put("allergies",allergies).put("plan",plan))){
+                m.openPatient(patient.s("id"));close()
+            }
+        }){Text(if(m.busy)"Зберігаємо…" else "Зберегти огляд")}},
+        dismissButton={TextButton(enabled=!m.busy,onClick=close){Text("Закрити")}}
+    )
 }

@@ -46,6 +46,13 @@ export class ApiController {
  @Post('shift/requests/:id/:action') shiftDecision(@Req() r:AuthRequest,@Param('id') id:string,@Param('action') action:string){if(!['approve','reject'].includes(action))throw new HttpException('Невідома дія',400);return this.c.approveShift(r.actor,id,action==='approve');}
  @Get('patients') patients(@Req() r:AuthRequest,@Query() q:any){return this.c.patients(r.actor,q);}
  @Post('patients') register(@Req() r:AuthRequest,@Body() b:any){return this.c.register(r.actor,b);}
+ @Get('patients/:id/qr')
+ async patientQr(@Req() r:AuthRequest,@Param('id') id:string){
+  allow(r.actor,'patients.manage');await this.c.patient(r.actor,id);
+  const base=process.env.PUBLIC_URL;if(!base)throw new HttpException('Налаштуйте PUBLIC_URL сервера',503);
+  const url=new URL('/patients',base);url.searchParams.set('patient',id);
+  return {url:url.href,svg:await QRCode.toString(url.href,{type:'svg',margin:4,width:280})};
+ }
  @Get('patients/:id') patient(@Req() r:AuthRequest,@Param('id') id:string){return this.c.patient(r.actor,id);}
  @Patch('patients/:id') edit(@Req() r:AuthRequest,@Param('id') id:string,@Body() b:any){return this.c.editPatient(r.actor,id,b);}
  @Post('patients/:id/discharge') discharge(@Req() r:AuthRequest,@Param('id') id:string){return this.c.discharge(r.actor,id);}
