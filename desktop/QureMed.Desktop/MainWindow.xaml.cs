@@ -58,8 +58,8 @@ public sealed class MainWindow : Window {
     readonly ProgressBar Progress = new() { IsIndeterminate = true, Visibility = Visibility.Collapsed };
     static Microsoft.UI.Xaml.Media.SolidColorBrush Color(byte r,byte g,byte b) => new(Windows.UI.Color.FromArgb(255,r,g,b));
     void BuildShell() {
-        var background=Color(11,16,26);var line=Color(37,48,68);var mint=Color(121,225,192);
-        var root=new Grid { RequestedTheme=ElementTheme.Dark, Background=background };
+        var background=Color(243,246,243);var line=Color(220,230,225);var mint=Color(8,126,114);
+        var root=new Grid { RequestedTheme=ElementTheme.Light, Background=background };
         root.RowDefinitions.Add(new RowDefinition { Height=GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height=new GridLength(1,GridUnitType.Star) });
         root.RowDefinitions.Add(new RowDefinition { Height=GridLength.Auto });
@@ -83,7 +83,7 @@ public sealed class MainWindow : Window {
     async Task ConfirmClose() {
         askingClose=true;
         try {
-            var dialog=new ContentDialog { XamlRoot=((FrameworkElement)Content).XamlRoot, RequestedTheme=ElementTheme.Dark, Title="Завершити зміну?", Content="Так — завершити роботу й вийти. Ні — закрити програму, залишивши зміну активною. Передача пацієнтів іншому лікарю виконується окремо.", PrimaryButtonText="Так", SecondaryButtonText="Ні", CloseButtonText="Скасувати" };
+            var dialog=new ContentDialog { XamlRoot=((FrameworkElement)Content).XamlRoot, RequestedTheme=ElementTheme.Light, Title="Завершити зміну?", Content="Так — завершити роботу й вийти. Ні — закрити програму, залишивши зміну активною. Передача пацієнтів іншому лікарю виконується окремо.", PrimaryButtonText="Так", SecondaryButtonText="Ні", CloseButtonText="Скасувати" };
             var answer=await dialog.ShowAsync();
             if(answer==ContentDialogResult.None)return;
             if(answer==ContentDialogResult.Primary&&browser?.CoreWebView2!=null){
@@ -94,7 +94,7 @@ public sealed class MainWindow : Window {
                 var error=await finishResult.Task;if(error!=null)throw new Exception(error);
             }
             allowClose=true;Close();
-        }catch(Exception ex){await new ContentDialog { XamlRoot=((FrameworkElement)Content).XamlRoot, RequestedTheme=ElementTheme.Dark, Title="Зміну не завершено", Content=ex.Message, CloseButtonText="Зрозуміло" }.ShowAsync();}
+        }catch(Exception ex){await new ContentDialog { XamlRoot=((FrameworkElement)Content).XamlRoot, RequestedTheme=ElementTheme.Light, Title="Зміну не завершено", Content=ex.Message, CloseButtonText="Зрозуміло" }.ShowAsync();}
         finally {askingClose=false;finishRequest=null;finishResult=null;}
     }
     static Uri ValidateAddress(string value) {

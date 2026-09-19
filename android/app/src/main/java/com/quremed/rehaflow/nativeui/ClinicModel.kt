@@ -23,6 +23,7 @@ class ClinicModel : ViewModel() {
     var synchronizedAt by mutableStateOf(""); private set
     var uncertain by mutableStateOf(false); private set
     var message by mutableStateOf(""); private set
+    val workspaceAllowed: Boolean get() = user?.s("role") == "ADMIN" || user?.optBoolean("onShift") == true
     fun can(permission: String) = user?.optJSONArray("permissions")?.let { a -> (0 until a.length()).any { a.optString(it) == permission } } == true
     fun fail(e: Exception) {
         error = e.message ?: "Не вдалося виконати дію."
@@ -46,9 +47,9 @@ class ClinicModel : ViewModel() {
         busy = true; error = ""
         viewModelScope.launch {
             try {
-                val result = ClinicApi.request("/auth/login", "POST", JSONObject().put("login", login.trim()).put("password", password).put("device", device), bearer = "") as JSONObject
+                val result = ClinicApi.request("/auth/login", "POST", JSONObject().put("login", login.trim()).put("password", password).put("device", device).put("requestShift", false), bearer = "") as JSONObject
                 NativeSession.token = result.getString("token")
-                user = result.getJSONObject("user"); NativeSession.userId = user!!.getString("id")
+                user = ClinicApi.request("/auth/me") as JSONObject; NativeSession.userId = user!!.getString("id")
                 changed++; done()
             } catch (e: Exception) { fail(e) } finally { busy = false }
         }
@@ -69,11 +70,20 @@ class ClinicModel : ViewModel() {
             val me = ClinicApi.request("/auth/me") as JSONObject
             if (auth != NativeSession.token) return
             user = me
+            if (!workspaceAllowed) { data = null; patient = null; return }
             val path = when (selected) {
                 "home" -> "/operations"
                 "patients" -> "/patients?status=ACTIVE&offset=$offset&q=" + java.net.URLEncoder.encode(search, "UTF-8")
                 "tasks" -> "/tasks?archive=$archive&offset=$offset"
                 "messages" -> "/care/messages"
+                "rooms" -> "/rooms"
+                "schedule" -> "/appointments"
+                "handovers" -> "/care/handovers"
+                "archive" -> "/patients?status=ARCHIVED&offset=$offset"
+                "users" -> "/users"
+                "sessions" -> "/sessions"
+                "audit" -> "/audit"
+                "approvals" -> "/shift/requests"
                 else -> null
             }
             val next = if (path == null) null else ClinicApi.request(path)
@@ -87,16 +97,17 @@ class ClinicModel : ViewModel() {
         } catch (e: Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; if (auth == NativeSession.token && selected == page) fail(e) } finally { loading = false }
     }
     fun openPatient(id: String) {
+        if (!workspaceAllowed) return
         viewModelScope.launch {
-            try { patient = ClinicApi.request("/patients/$id") as JSONObject } catch (e: Exception) { fail(e) }
+            try { val auth = NativeSession.token; val detail = ClinicApi.request("/patients/$id") as JSONObject; if(auth == NativeSession.token && workspaceAllowed) patient = detail } catch (e: Exception) { fail(e) }
         }
     }
     fun closePatient() { patient = null }
-    fun write(path: String, body: JSONObject = JSONObject(), done: () -> Unit = {}) {
+    fun write(path: String, body: JSONObject = JSONObject(), method: String = "POST", done: () -> Unit = {}) {
         if (busy || uncertain) return
         busy = true; error = ""; message = ""
         viewModelScope.launch {
-            try { ClinicApi.request(path, "POST", body); changed++; message = "Збережено"; done() }
+            try { ClinicApi.request(path, method, body); changed++; message = "Збережено"; done() }
             catch (e: Exception) { if (e is ApiFailure && e.status == 0) uncertain = true; fail(e) }
             finally { busy = false }
         }

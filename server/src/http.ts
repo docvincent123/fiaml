@@ -22,7 +22,7 @@ export class Errors implements ExceptionFilter {
 @Controller('api')
 export class PublicController {
  constructor(@Inject(CLINIC) private clinic:Clinic){}
- @Get('health') async health(){await this.clinic.db.query('SELECT 1');return {status:'ok',brand:'QureMed Industries',version:'2.5',apiMajor:1};}
+ @Get('health') async health(){await this.clinic.db.query('SELECT 1');return {status:'ok',brand:'QureMed Industries',version:'3.0.0',apiMajor:1};}
  @Post('auth/login') login(@Body() b:any,@Req() r:Request){return this.clinic.login(b,r.ip??'unknown');}
 }
 @Controller('api') @UseGuards(AuthGuard)

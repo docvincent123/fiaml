@@ -149,6 +149,20 @@ test('Room retirement protects occupied beds, permissions and historical admissi
 
 async function registerTest(a:Actor,input:any){return c.register(a,{birth_date:'1990-01-01',complaints:'Тестові скарги',...input});}
 async function approvedShift(a:Actor){await c.shift(a,{start:true});const requests=await c.shiftRequests(admin);const pending=requests.find((r:any)=>r.user_id===a.id);if(pending)await c.approveShift(admin,pending.id,true);}
+test('Mobile login waits for consent before requesting a shift, then requires approval',async()=>{
+ for(const role of ['REGISTRAR','DOCTOR','NURSE','THERAPIST']){
+  const user=await c.saveUser(admin,{name:'Mobile '+role,login:'mobile-consent-'+role.toLowerCase(),role,password:'1',specialty:'Тест'});
+  const session=await c.login({login:'mobile-consent-'+role.toLowerCase(),password:'1',requestShift:false},'127.0.0.1');
+  const a=await c.authenticate(session.token);
+  assert.equal((await c.shiftRequests(admin)).some(r=>r.user_id===user.id),false);
+  assert.equal((await c.me(a)).onShift,false);
+  await c.shift(a,{start:true});await c.shift(a,{start:true});
+  const pending=(await c.shiftRequests(admin)).filter(r=>r.user_id===user.id);
+  assert.equal(pending.length,1);assert.equal(await c.onShift(a),false);
+  await c.approveShift(admin,pending[0].id,true);
+  assert.equal((await c.me(a)).onShift,true);
+ }
+});
 test('Registration validates required birth date and complaints and preserves admission details',async()=>{
  await assert.rejects(()=>c.register(admin,{name:'Missing date',complaints:'Скарги'}));
  await assert.rejects(()=>c.register(admin,{name:'Missing complaints',birth_date:'1990-01-01'}));

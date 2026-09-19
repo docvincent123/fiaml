@@ -19,7 +19,7 @@ export class Clinic {
  async audit(c:Queryable,a:Actor|null,action:string,id?:string){await c.query('INSERT INTO audit_events(actor_id,action,entity_id) VALUES($1,$2,$3)',[a?.id??null,action,id??null]);}
  async changed(c:Queryable){await c.query('INSERT INTO outbox DEFAULT VALUES');}
  async login(input:any,ip:string){
-  const b=z.object({login:text,password:z.string().min(1).max(256),device:text.default('Пристрій')}).parse(input);
+  const b=z.object({login:text,password:z.string().min(1).max(256),device:text.default('Пристрій'),requestShift:z.boolean().default(true)}).parse(input);
   // Serialize attempts per account, persists across server restart; no password/token in logs.
   const result=await this.db.tx(async c=>{
    await c.query('INSERT INTO login_attempts(key) VALUES($1) ON CONFLICT DO NOTHING',[b.login.toLowerCase()]);
@@ -30,7 +30,7 @@ export class Clinic {
    if(!u||!valid){await c.query("UPDATE login_attempts SET failures=CASE WHEN window_at<now()-interval '15 minutes' THEN 1 ELSE failures+1 END, blocked_until=CASE WHEN failures>=4 AND window_at>=now()-interval '15 minutes' THEN now()+interval '15 minutes' ELSE NULL END, window_at=CASE WHEN window_at<now()-interval '15 minutes' THEN now() ELSE window_at END WHERE key=$1",[b.login.toLowerCase()]);return null;}
    await c.query('DELETE FROM login_attempts WHERE key=$1',[b.login.toLowerCase()]);
    const s=(await c.query("INSERT INTO sessions(user_id,device,ip,expires_at) VALUES($1,$2,$3,now()+interval '14 hours') RETURNING id",[u.id,b.device,ip])).rows[0];
-   if(u.role!=='ADMIN'&&!(await c.query('SELECT id FROM shifts WHERE user_id=$1 AND starts_at<=now() AND ends_at>now()',[u.id])).rows.length){await c.query("INSERT INTO shift_requests(user_id) VALUES($1) ON CONFLICT(user_id) WHERE status='PENDING' DO NOTHING",[u.id]);}
+   if(b.requestShift&&u.role!=='ADMIN'&&!(await c.query('SELECT id FROM shifts WHERE user_id=$1 AND starts_at<=now() AND ends_at>now()',[u.id])).rows.length){await c.query("INSERT INTO shift_requests(user_id) VALUES($1) ON CONFLICT(user_id) WHERE status='PENDING' DO NOTHING",[u.id]);}
    await this.audit(c,null,'session.login',s.id);
    return {u,s};
   });

@@ -37,7 +37,7 @@ public final class ShiftAlertsService extends Service {
         intent.putExtra("destination",path);
         return PendingIntent.getActivity(context,path.hashCode(),intent,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
     }
-    static void alert(Context context,String title,String text,String path){
+    public static void alert(Context context,String title,String text,String path){
         if(Build.VERSION.SDK_INT>=33&&context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)return;
         channels(context);
         Notification notification=new Notification.Builder(context,EVENTS).setSmallIcon(com.quremed.rehaflow.R.drawable.notification_icon)
@@ -87,10 +87,12 @@ public final class ShiftAlertsService extends Service {
             String key="seen:"+currentServer+":"+currentUser;
             android.content.SharedPreferences preferences=getSharedPreferences("shift-alerts",MODE_PRIVATE);
             Set<String> seen=preferences.getStringSet(key,Collections.emptySet()),now=new HashSet<>();
-            int fresh=0;String path="/";
-            for(int i=0;i<events.length();i++){JSONObject event=events.getJSONObject(i);String eventId=event.getString("id");now.add(eventId);if(!seen.contains(eventId)){fresh++;path=event.getString("path");}}
+            int fresh=0,tasks=0;String path="/";
+            for(int i=0;i<events.length();i++){JSONObject event=events.getJSONObject(i);String eventId=event.getString("id");now.add(eventId);if(!seen.contains(eventId)){fresh++;if("task".equals(event.optString("kind")))tasks++;path=event.getString("path");}}
             if(version!=generation||ended)return;
-            if(fresh>0)alert(this,"RehaFlow · нові події","Повідомлення або зміни у завданнях: "+fresh+". Відкрийте застосунок.",path);
+            if(fresh>0)alert(this,tasks>0?"RehaFlow · нове завдання":"RehaFlow · нові події","Нових подій: "+fresh+". Відкрийте застосунок.",tasks>0?"/tasks":path);
+            // Keep recently seen events even when they temporarily leave the server's feed.
+            if(seen.size()+now.size()<=2000)now.addAll(seen);
             preferences.edit().putStringSet(key,now).apply();
             status("Зв’язок активний · перевірка кожні 15 секунд");
         }catch(Exception e){if(!ended&&version==generation)status("Немає зв’язку. Перевірте Wi-Fi, сервер і сертифікат.");}

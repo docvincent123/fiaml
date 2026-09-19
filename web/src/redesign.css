@@ -123,6 +123,12 @@
  .ops-staff:last-child{border:0}.ops-staff strong{font-size:.88rem}.ops-staff small{margin-top:3px}
  .ops-status{padding:14px 0;border-bottom:1px solid #e7eddf}.ops-status p{font-size:.85rem;margin:5px 0}.ops-status small{font-size:.74rem}
  .ops-full{grid-column:1/-1}.ops-layout .padded{padding:24px}.ops-layout .padded h3{margin-top:0}
+ @media(prefers-reduced-motion:no-preference){
+  :root[data-effects="full"] .stat,:root[data-effects="full"] .ops-layout>section{animation:enter-surface 240ms var(--ease-out) both}
+  :root[data-effects="full"] .stat:nth-child(2){animation-delay:40ms}
+  :root[data-effects="full"] .stat:nth-child(3){animation-delay:80ms}
+  :root[data-effects="full"] .stat:nth-child(4){animation-delay:120ms}
+ }
  @media(min-width:851px) and (max-width:1150px){.sidebar{width:222px}.workspace{margin-left:222px}main{padding:28px 24px}.topbar{padding:0 24px}.ops-layout{grid-template-columns:1fr}}
  @media(max-width:850px){.sidebar{width:250px}.workspace{margin-left:0}.topbar{padding:0 20px}main{padding:24px 20px}.ops-layout{grid-template-columns:1fr}.top-title{display:none}}
  @media(max-width:600px){.top-right{gap:6px;flex-wrap:wrap}.overview-banner{padding:22px;border-radius:18px}.stats{gap:10px}.stat{padding:16px;border-radius:14px}.stat strong{font-size:2rem}.stat svg{padding:5px;width:17px;height:17px}.page-heading{gap:14px}.toolbar{padding:10px}.care-dialog{border-radius:0}.care-dialog .dialog-head{background:#fff}.login-box{padding:26px}.padded{padding:20px}.ops-layout .padded{padding:20px}}

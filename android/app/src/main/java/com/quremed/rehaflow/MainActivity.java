@@ -89,7 +89,7 @@ public final class MainActivity extends Activity {
         status=text("Підключення…",12);root.addView(status);
         settings.setOnClickListener(v->new AlertDialog.Builder(this).setMessage("Вийти з поточного вікна та змінити сервер?").setNegativeButton("Назад",null).setPositiveButton("Змінити",(d,w)->setup()).show());
         web=new WebView(this);web.setBackgroundColor(background);root.addView(web,new LinearLayout.LayoutParams(-1,0,1));
-        WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setCacheMode(WebSettings.LOAD_NO_CACHE);s.setSupportMultipleWindows(false);s.setUserAgentString(s.getUserAgentString()+" RehaFlowAndroid/2.5.0");
+        WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setCacheMode(WebSettings.LOAD_NO_CACHE);s.setSupportMultipleWindows(false);s.setUserAgentString(s.getUserAgentString()+" RehaFlowAndroid/3.0.0");
         CookieManager.getInstance().setAcceptThirdPartyCookies(web,false);
         web.addJavascriptInterface(new DocumentBridge(),"QureMedAndroid");
         reload.setOnClickListener(v->web.reload());print.setOnClickListener(v->printPage());
@@ -133,7 +133,7 @@ public final class MainActivity extends Activity {
             case SslError.SSL_UNTRUSTED: reason="Android не довіряє центру сертифікації. Потрібен актуальний QureMed-Local-CA.crt саме з поточної папки сервера, встановлений як CA у тому самому профілі Android, де працює застосунок. Сертифікат Wi-Fi або старого сервера не підходить.";break;
             default: reason="Не вдалося перевірити HTTPS-сертифікат. Перевірте адресу, час і актуальний CA сервера.";
         }
-        return reason+"\nСервер: "+origin+"\nКод TLS: "+error.getPrimaryError()+" · APK 2.5.0\nПісля встановлення CA повністю закрийте застосунок і відкрийте знову.";
+        return reason+"\nСервер: "+origin+"\nКод TLS: "+error.getPrimaryError()+" · APK 3.0.0\nПісля встановлення CA повністю закрийте застосунок і відкрийте знову.";
     }
     private void certificateHelp(){new AlertDialog.Builder(this).setTitle("Довіра до сервера центру").setMessage("1. На ПК сервера знайдіть QureMed-Local-CA.crt поряд зі Start-QureMed.\n2. Скопіюйте цей файл на телефон через USB або передайте його особисто.\n3. Налаштування Android → Безпека → Інші налаштування безпеки → Установити сертифікат → Сертифікат CA. Назви меню можуть відрізнятися.\n4. Оберіть файл центру й підтвердьте встановлення. Поверніться сюди та натисніть «Оновити».\n\nАдреса застосунку — IP ПК сервера, а не шлюз роутера. Перевірте дату й час телефона.").setNegativeButton("Закрити",null).setPositiveButton("Налаштування безпеки",(d,w)->{try{startActivity(new Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS));}catch(Exception e){Toast.makeText(this,"Відкрийте налаштування безпеки Android",Toast.LENGTH_LONG).show();}}).show();}
     private void printPage(){if(web!=null&&sameOrigin(web.getUrl())){PrintManager manager=(PrintManager)getSystemService(PRINT_SERVICE);if(manager!=null)manager.print("RehaFlow",web.createPrintDocumentAdapter("RehaFlow"),null);}}
