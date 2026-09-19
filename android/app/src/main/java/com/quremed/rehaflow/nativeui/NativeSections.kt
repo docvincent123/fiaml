@@ -56,8 +56,14 @@ private fun displayTime(v:String)=runCatching{java.time.OffsetDateTime.parse(v).
 
 @Composable private fun Picker(label:String,path:String,value:String,change:(String)->Unit,filter:(JSONObject)->Boolean={true}){
     var rows by remember(path){mutableStateOf(emptyList<JSONObject>())};var error by remember(path){mutableStateOf("")};var expanded by remember{mutableStateOf(false)}
-    LaunchedEffect(path){try{rows=(ClinicApi.request(path) as JSONArray).objects().filter(filter)}catch(e:Exception){error=e.message ?: "Помилка"}}
+    var query by remember(path){mutableStateOf("")}
+    LaunchedEffect(path,query){try{
+        if(query.isNotEmpty())kotlinx.coroutines.delay(350)
+        val endpoint=if(path.startsWith("/patients"))path+(if(path.contains("?"))"&" else "?")+"q="+java.net.URLEncoder.encode(query,"UTF-8") else path
+        rows=(ClinicApi.request(endpoint) as JSONArray).objects().filter(filter);error=""
+    }catch(e:kotlinx.coroutines.CancellationException){throw e}catch(e:Exception){error=e.message ?: "Помилка"}}
     Column{
+        if(path.startsWith("/patients"))OutlinedTextField(query,{query=it.take(200)},label={Text("Пошук пацієнта: ПІБ або номер")},singleLine=true,modifier=Modifier.fillMaxWidth())
         OutlinedButton(onClick={expanded=true},modifier=Modifier.fillMaxWidth()){Text(label+": "+(rows.find{it.s("id")==value}?.let{it.s("name").ifEmpty{it.s("patient_name")}} ?: "Оберіть"))}
         DropdownMenu(expanded,{expanded=false}){rows.forEach{r->DropdownMenuItem(text={Text(r.s("name").ifEmpty{r.s("patient_name")}+if(r.has("patient_count"))" · пацієнтів: "+r.s("patient_count") else "")},onClick={change(r.s("id"));expanded=false})}}
         if(error.isNotEmpty())Text(error,color=MaterialTheme.colorScheme.error)

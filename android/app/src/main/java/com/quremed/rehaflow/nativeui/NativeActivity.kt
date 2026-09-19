@@ -143,6 +143,7 @@ class NativeActivity : ComponentActivity() {
                 Text("Робочі розділи відкриються після вашого запиту та підтвердження адміністратора.",Modifier.padding(vertical=16.dp))
                 if(m.message.isNotEmpty())Text("Запит надіслано. Очікуємо підтвердження адміністратора.")
                 if(m.error.isNotEmpty())ErrorCard(m.error)
+                if(m.uncertain)TextButton(onClick={m.checkedUncertain();m.changed++}){Text("Перевірити стан запиту")}
                 Button(enabled=!m.busy&&!m.uncertain,onClick={m.write("/shift",JSONObject().put("start",true))}){Text("Так, почати зміну")}
                 TextButton(enabled=!m.busy,onClick={m.write("/auth/logout"){m.clear();stopAlerts()}}){Text("Ні, вийти")}
             }
@@ -261,7 +262,11 @@ class NativeActivity : ComponentActivity() {
         item{NativeClinicalActions(m,p)}
         if(ad!=null && m.can("tasks.create"))item{ActionTile("Призначити лікування","Пацієнта вже обрано · ліки, догляд, реабілітація",Icons.Outlined.Medication){prescribing=true}}
         if(ad!=null && m.can("clinical.write"))item{ActionTile("Новий огляд","Скарги, діагноз, алергії та план",Icons.Outlined.EditNote){examining=true}}
-        items(p.optJSONArray("entries")?.objects() ?: emptyList()){e->InfoCard("Медичний запис · ${localTime(e.s("created_at"))}","Додав: ${e.s("author")}",e.s("body"))}
+        items(p.optJSONArray("entries")?.objects() ?: emptyList()){e->
+            InfoCard("Медичний запис · ${localTime(e.s("created_at"))}","Додав: ${e.s("author")}",e.s("body"))
+            val labels=mapOf("complaints" to "Скарги","diagnosis" to "Діагноз","allergies" to "Алергії","plan" to "План","goals" to "Цілі","assessment" to "Оцінка","result" to "Результат","next_plan" to "Наступний план","recommendations" to "Рекомендації")
+            e.optJSONObject("data")?.let{data->labels.forEach{(key,label)->if(data.s(key).isNotEmpty())Text(label+": "+data.s(key))}}
+        }
         items(p.optJSONArray("admissions")?.objects() ?: emptyList()){a->InfoCard("Госпіталізація",a.s("admitted_at").take(10),"${if(a.s("discharged_at").isEmpty())"Триває" else "Виписано: "+a.s("discharged_at").take(10)}\nЛікар: ${a.s("doctor_name").ifEmpty{"—"}}")}
     }
 }
