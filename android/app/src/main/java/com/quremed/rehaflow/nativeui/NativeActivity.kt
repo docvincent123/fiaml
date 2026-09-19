@@ -108,7 +108,7 @@ class NativeActivity : ComponentActivity() {
         LaunchedEffect(m.user != null,m.page,m.changed){lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED){while(true){m.refresh();delay(5000)}}}
         LaunchedEffect(m.workspaceAllowed){if(m.workspaceAllowed){if(!ShiftAlertsService.running)startAlerts()}else stopAlerts()}
         LaunchedEffect(m.user){if(m.user==null && NativeSession.token.isEmpty())stopAlerts()}
-        BackHandler(m.user!=null){if(m.patient!=null)m.closePatient() else if(m.page!="home")m.select("home") else close=true}
+        BackHandler(m.user!=null){if(!m.workspaceAllowed)finish() else if(m.patient!=null)m.closePatient() else if(m.page!="home")m.select("home") else close=true}
         if(m.user==null){
             Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(24.dp),horizontalAlignment=Alignment.CenterHorizontally){
                 Spacer(Modifier.height(36.dp));Image(painterResource(R.drawable.rehaflow_icon),null,Modifier.size(72.dp));Spacer(Modifier.height(20.dp))

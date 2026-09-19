@@ -98,8 +98,9 @@ class ClinicModel : ViewModel() {
     }
     fun openPatient(id: String) {
         if (!workspaceAllowed) return
+        val selectedPage = page
         viewModelScope.launch {
-            try { val auth = NativeSession.token; val detail = ClinicApi.request("/patients/$id") as JSONObject; if(auth == NativeSession.token && workspaceAllowed) patient = detail } catch (e: Exception) { fail(e) }
+            try { val auth = NativeSession.token; val detail = ClinicApi.request("/patients/$id") as JSONObject; if(auth == NativeSession.token && workspaceAllowed && page == selectedPage) patient = detail } catch (e: Exception) { fail(e) }
         }
     }
     fun closePatient() { patient = null }
