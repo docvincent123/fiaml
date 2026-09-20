@@ -83,6 +83,7 @@ class NativeActivity : ComponentActivity() {
         if(!model.workspaceAllowed)return
         val uri=android.net.Uri.parse(path)
         val page=when(uri.path){"/"->"home";"/pool","/tasks"->"tasks";"/cabinets","/schedule"->"schedule";else->uri.path?.removePrefix("/") ?: "home"}
+        if(page=="archive")return
         model.select(page)
         uri.getQueryParameter("patient")?.let{model.openPatient(it)}
     }
@@ -95,7 +96,7 @@ class NativeActivity : ComponentActivity() {
         if(savedInstanceState==null)routeIntent(intent)
         setContent { MaterialTheme(colorScheme=palette) { Surface(Modifier.fillMaxSize()) { App() } } }
     }
-    override fun onResume(){super.onResume();ShiftAlertsService.setActivityVisible(this,true)}
+    override fun onResume(){super.onResume();ShiftAlertsService.setActivityVisible(this,true);if(model.workspaceAllowed && !ShiftAlertsService.running)startAlerts()}
     override fun onPause(){ShiftAlertsService.setActivityVisible(this,false);super.onPause()}
     override fun onNewIntent(intent:Intent){super.onNewIntent(intent);setIntent(intent);routeIntent(intent)}
     private fun routeIntent(intent:Intent){if(!intent.hasExtra("destination"))return
@@ -196,7 +197,7 @@ class NativeActivity : ComponentActivity() {
             item{InfoCard("Ваш профіль",m.user?.s("name") ?: "",m.user?.s("role_label")?.takeIf{it.isNotEmpty()} ?: roles[m.user?.s("role")] ?: "")}
             item{InfoCard("Цей пристрій",Build.MANUFACTURER+" "+Build.MODEL,"Android ${Build.VERSION.RELEASE}\nRehaFlow ${info.versionName}\nКод установлення: $identity\nКод зміниться після очищення даних або перевстановлення.")}
             item{Card{Column(Modifier.padding(18.dp)){Text("Сповіщення",style=MaterialTheme.typography.titleMedium);Row(verticalAlignment=Alignment.CenterVertically){Text("Звук і нові завдання",Modifier.weight(1f));Switch(alerts,{alerts=it;getSharedPreferences("shift-alerts",MODE_PRIVATE).edit().putBoolean("enabled",it).apply();if(it)onAlerts() else stopAlerts()})};Text(ShiftAlertsService.state);TextButton(onClick={runCatching{startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,packageName))}}){Text("Звук і дозволи Android")}}}}
-            item{OutlinedButton(onClick={ShiftAlertsService.alert(this@NativeActivity,"RehaFlow · перевірка звуку","Тестове сповіщення. Якщо звуку немає, перевірте дозволи, гучність і «Не турбувати».","/settings")}){Text("Перевірити звук сповіщення")}}
+            item{OutlinedButton(onClick={ShiftAlertsService.testSound(this@NativeActivity)}){Text("Перевірити звук сповіщення")}}
             item{InfoCard("З’єднання",NativeSession.server,"Списки перевіряються кожні 5 секунд, поки застосунок відкритий. Останній зв’язок: ${m.synchronizedAt.ifEmpty{"—"}}")}
             item{CertificateHelp();OutlinedButton(enabled=!m.busy,onClick=onServer){Text("Вийти та змінити сервер")}}
             item{NativePassword(m)}
@@ -217,7 +218,7 @@ class NativeActivity : ComponentActivity() {
         if(m.can("patients.read"))item{ActionTile("Пацієнти","Знайти картку та лікуючого лікаря",Icons.Outlined.People){m.select("patients")}}
         if(m.can("tasks.work")||m.can("tasks.read"))item{ActionTile("Завдання та призначення","План роботи і результати виконання",Icons.Outlined.Assignment){m.select("tasks")}}
         if(m.can("rooms.read"))item{ActionTile("Палати та ліжка","Вільні місця і розміщення",Icons.Outlined.Bed){open("/rooms")}}
-        if(m.can("appointments.read"))item{ActionTile("Розклад","Записи та процедури",Icons.Outlined.CalendarMonth){open(if(m.can("appointments.manage"))"/cabinets" else "/schedule")}}
+        if(m.can("appointments.read"))item{ActionTile("Мої пацієнти сьогодні","Час, кабінет і картка кожного пацієнта",Icons.Outlined.CalendarMonth){open(if(m.can("appointments.manage"))"/cabinets" else "/schedule")}}
         if(m.can("handover.manage"))item{ActionTile("Передача пацієнтів","Підсумок зміни та прийняття пацієнтів",Icons.Outlined.SwapHoriz){open("/handovers")}}
         if(m.can("shift.handover"))item{ActionTile("Передати робочу зміну","Передача незавершених завдань колезі",Icons.Outlined.SwapHoriz){open("/pool")}}
         if(m.can("users.manage"))item{ActionTile("Команда і права","Облікові записи персоналу",Icons.Outlined.AdminPanelSettings){open("/users")}}
@@ -259,11 +260,25 @@ class NativeActivity : ComponentActivity() {
     val ad=p.optJSONArray("admissions")?.objects()?.firstOrNull{it.s("discharged_at").isEmpty()}
     LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp),contentPadding=PaddingValues(bottom=24.dp)){
         item{TextButton(onClick={m.closePatient()}){Icon(Icons.Outlined.ArrowBack,null);Text("До списку")}}
-        item{InfoCard("Пацієнт № ${p.s("patient_number")}",p.s("name"),"Дата народження: ${p.s("birth_date").take(10).ifEmpty{"—"}}\nТелефон: ${p.s("phone").ifEmpty{"—"}}")}
+        item{InfoCard("Прізвище, ім’я, по батькові · № ${p.s("patient_number")}",p.s("name"),"Дата народження: ${p.s("birth_date").take(10).ifEmpty{"—"}}\nТелефон: ${p.s("phone").ifEmpty{"—"}}")}
         item{InfoCard("Лікуючий лікар",ad?.s("doctor_name")?.ifEmpty{"Не призначено"} ?: "Не призначено","Палата ${ad?.s("room_number")?.ifEmpty{"—"} ?: "—"} • ліжко ${ad?.s("bed_number")?.ifEmpty{"—"} ?: "—"}\nНаправлення: ${ad?.s("referral")?.ifEmpty{"—"} ?: "—"}")}
+        item{InfoCard("Домашня адреса",p.s("address").ifEmpty{"Не вказана"},"Контакт близької людини: "+p.s("emergency_contact").ifEmpty{"Не вказаний"})}
+        item{InfoCard("Причина звернення",ad?.s("complaints")?.ifEmpty{"Не вказана"} ?: "Не вказана","Стать: "+(mapOf("FEMALE" to "Жіноча","MALE" to "Чоловіча","OTHER" to "Інша")[p.s("sex")] ?: "Не вказана"))}
         item{NativeClinicalActions(m,p)}
         if(ad!=null && m.can("tasks.create"))item{ActionTile("Призначити лікування","Пацієнта вже обрано · ліки, догляд, реабілітація",Icons.Outlined.Medication){prescribing=true}}
         if(ad!=null && m.can("clinical.write"))item{ActionTile("Новий огляд","Скарги, діагноз, алергії та план",Icons.Outlined.EditNote){examining=true}}
+        item{Text("Лікування та призначення",style=MaterialTheme.typography.titleLarge)}
+        val treatments=(p.optJSONArray("timelineTasks")?.objects() ?: emptyList()).filter{it.s("admission_id")==ad?.s("id")}
+        if(treatments.isEmpty())item{Text("У поточній госпіталізації призначень немає")}
+        items(treatments,key={"treatment:"+it.s("id")}){t->
+            InfoCard(t.s("task_type")+" · "+localTime(t.s("scheduled_at")),t.s("description"),
+                "Додав: "+t.s("creator").ifEmpty{"—"}+" · "+localTime(t.s("created_at"))+"\n"+
+                (if(t.s("medication").isNotEmpty())t.s("medication")+" · "+t.s("dose")+" "+t.s("dose_unit")+" · "+t.s("route")+"\n" else "")+
+                (if(t.optBoolean("not_done"))"Не виконано" else taskStatuses[t.s("status")] ?: t.s("status"))+
+                (if(t.s("executor").isNotEmpty())" · "+t.s("executor") else "")+
+                (if(t.s("outcome").isNotEmpty())"\nРезультат: "+t.s("outcome") else ""))
+        }
+        item{Text("Огляди та медичні записи",style=MaterialTheme.typography.titleLarge)}
         items(p.optJSONArray("entries")?.objects() ?: emptyList()){e->
             InfoCard("Медичний запис · ${localTime(e.s("created_at"))}","Додав: ${e.s("author")}",e.s("body"))
             val labels=mapOf("complaints" to "Скарги","diagnosis" to "Діагноз","allergies" to "Алергії","plan" to "План","goals" to "Цілі","assessment" to "Оцінка","result" to "Результат","next_plan" to "Наступний план","recommendations" to "Рекомендації")
