@@ -15,7 +15,7 @@ import org.json.JSONObject
 /** All routes here use Compose and the authenticated API; no browser or WebView. */
 @Composable fun NativeSection(m:ClinicModel,open:(String)->Unit){
     val rows=(m.data as? JSONArray)?.objects() ?: emptyList()
-    val titles=mapOf("rooms" to "Палати та ліжка","schedule" to "Розклад процедур","archive" to "Архів пацієнтів","handovers" to "Передача пацієнтів","users" to "Команда","sessions" to "Сесії","audit" to "Журнал дій","approvals" to "Початок зміни","registration" to "Реєстрація","compose" to "Нове повідомлення")
+    val titles=mapOf("rooms" to "Палати та ліжка","schedule" to "Розклад процедур","handovers" to "Передача пацієнтів","users" to "Команда","sessions" to "Сесії","audit" to "Журнал дій","approvals" to "Початок зміни","registration" to "Реєстрація","compose" to "Нове повідомлення")
     LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp),contentPadding=PaddingValues(bottom=24.dp)){
         item{Text(titles[m.page] ?: "Розділ",style=MaterialTheme.typography.headlineSmall);TextButton(onClick={m.select("home")}){Text("До огляду")}}
         when(m.page){
@@ -35,7 +35,6 @@ import org.json.JSONObject
                     "schedule"->{Text(r.s("patient_name"),style=MaterialTheme.typography.titleLarge);Text(r.s("cabinet_name")+" · "+r.s("staff_name"));Text(displayTime(r.s("starts_at"))+" — "+displayTime(r.s("ends_at")));Text(mapOf("BOOKED" to "Записано","COMPLETED" to "Виконано","CANCELLED" to "Скасовано")[r.s("status")] ?: r.s("status"))
                         if(m.can("patients.read"))TextButton(onClick={open("/patients?patient="+r.s("patient_id"))}){Text("Картка пацієнта")}
                     }
-                    "archive"->{Text(r.s("name"),style=MaterialTheme.typography.titleLarge);Text("№ "+r.s("patient_number")+" · "+r.s("birth_date").take(10));TextButton(onClick={open("/patients?patient="+r.s("id"))}){Text("Історія пацієнта")}}
                     "handovers"->{Text(r.s("patient_name"),style=MaterialTheme.typography.titleLarge);Text(r.s("from_name")+" → "+r.s("to_name"));Text(r.s("summary"))
                         if(r.s("status")=="PENDING"&&r.s("to_id")==m.user?.s("id"))Button(enabled=!m.busy&&!m.uncertain,onClick={m.write("/care/handovers/"+r.s("id")+"/accept")}){Text("Прийняти пацієнта")}
                     }
@@ -49,7 +48,6 @@ import org.json.JSONObject
                 }
             }}
         }
-        if(m.page=="archive")item{Row{TextButton(enabled=m.offset>0,onClick={m.offset=(m.offset-100).coerceAtLeast(0);m.changed++}){Text("Назад")};TextButton(enabled=rows.size==100,onClick={m.offset+=100;m.changed++}){Text("Далі")}}}
     }
 }
 private fun displayTime(v:String)=runCatching{java.time.OffsetDateTime.parse(v).atZoneSameInstant(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))}.getOrDefault(v)
@@ -104,14 +102,15 @@ private fun displayTime(v:String)=runCatching{java.time.OffsetDateTime.parse(v).
 }
 @Composable private fun Registration(m:ClinicModel){
     val values=remember{mutableStateMapOf<String,String>()}
+    var bed by remember{mutableStateOf("")}
     var doctor by remember{mutableStateOf("")};var duplicate by remember{mutableStateOf(false)}
     if(!m.can("patients.manage"))return
     Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
         listOf("name" to "ПІБ *","birth_date" to "Дата народження: РРРР-ММ-ДД *","phone" to "Телефон","address" to "Адреса","emergency_contact" to "Контакт близької людини","complaints" to "Скарги, причина звернення *","referral" to "Направлення").forEach{(key,label)->OutlinedTextField(values[key] ?: "",{values[key]=it.take(1000)},label={Text(label)},modifier=Modifier.fillMaxWidth())}
         Picker("Лікуючий лікар","/staff",doctor,{doctor=it},{it.s("role")=="DOCTOR"})
-        Text("Реєстрація без розміщення у ліжку. Розміщення можна оформити з ПК.")
+        BedPicker(bed){bed=it}
         Row{Checkbox(duplicate,{duplicate=it});Text("Перевірено: це інша людина, навіть якщо ПІБ і дата народження збігаються")}
-        Button(enabled=!m.busy&&!m.uncertain&&!values["name"].isNullOrBlank()&&!values["complaints"].isNullOrBlank()&&runCatching{java.time.LocalDate.parse(values["birth_date"] ?: "")}.isSuccess,onClick={val b=JSONObject();values.forEach{(k,v)->b.put(k,v)};b.put("doctor_id",doctor.ifEmpty{null}).put("duplicate_ack",duplicate);m.write("/patients",b){m.select("patients")}}){Text("Зареєструвати")}
+        Button(enabled=!m.busy&&!m.uncertain&&!values["name"].isNullOrBlank()&&!values["complaints"].isNullOrBlank()&&runCatching{java.time.LocalDate.parse(values["birth_date"] ?: "")}.isSuccess,onClick={val b=JSONObject();values.forEach{(k,v)->b.put(k,v)};b.put("doctor_id",doctor.ifEmpty{null}).put("bed_id",bed.ifEmpty{null}).put("duplicate_ack",duplicate);m.write("/patients",b){m.select("patients")}}){Text("Зареєструвати")}
     }
 }
 @Composable private fun HandoverForm(m:ClinicModel){
@@ -153,4 +152,19 @@ private fun displayTime(v:String)=runCatching{java.time.OffsetDateTime.parse(v).
         if(kind=="REHAB")listOf("goals","assessment","result","next_plan").forEach{data.put(it,fields[it] ?: "")}
         m.write("/patients/"+p.s("id")+"/entries",JSONObject().put("kind",kind).put("body",body).put("data",data)){kind="";body="";fields.clear();m.openPatient(p.s("id"))}
     }){Text("Зберегти")}},dismissButton={TextButton(onClick={kind=""}){Text("Скасувати")}})
+}
+
+@Composable private fun BedPicker(value:String,change:(String)->Unit){
+    var rooms by remember{mutableStateOf(emptyList<JSONObject>())};var error by remember{mutableStateOf("")}
+    var expanded by remember{mutableStateOf(false)}
+    LaunchedEffect(expanded){if(expanded)try{rooms=(ClinicApi.request("/rooms") as JSONArray).objects();error=""}catch(e:kotlinx.coroutines.CancellationException){throw e}catch(e:Exception){error=e.message ?: "Не вдалося завантажити ліжка"}}
+    val beds=rooms.flatMap{room->(room.optJSONArray("beds")?.objects() ?: emptyList()).filter{it.s("patient_id").isEmpty()}.map{it.s("id") to ("Палата "+room.s("room_number")+" · ліжко "+it.s("bed_number"))}}
+    Column{
+        OutlinedButton(onClick={expanded=true},modifier=Modifier.fillMaxWidth()){Text(beds.find{it.first==value}?.second ?: "Оберіть палату та ліжко")}
+        DropdownMenu(expanded,{expanded=false}){
+            DropdownMenuItem(text={Text("Без розміщення")},onClick={change("");expanded=false})
+            beds.forEach{(id,label)->DropdownMenuItem(text={Text(label)},onClick={change(id);expanded=false})}
+        }
+        if(error.isNotEmpty())Text(error,color=MaterialTheme.colorScheme.error)
+    }
 }

@@ -114,7 +114,8 @@ test('Discharge summary preserves clinician fields and separates admissions',asy
  assert.equal(summary.data.treatment_summary,'Проведене лікування');
  await assert.rejects(()=>c.entry(n1,p.id,{kind:'DISCHARGE',body:'Не дозволено',data:{recommendations:'',follow_up:''}}));
  await c.discharge(admin,p.id);
- const archived=await c.patient({...d1,permissions:[...d1.permissions,'archive.read']},p.id);
+ await assert.rejects(()=>c.patient({...d1,permissions:[...d1.permissions,'archive.read']},p.id));
+ const archived=await c.patient(admin,p.id);
  assert.equal(archived.entries.find((e:any)=>e.id===summary.id).data.diagnosis,'Тестовий діагноз');
 });
 
@@ -207,8 +208,9 @@ test('Archive contains old cancelled prescriptions with author; staff scope rema
  const p=await patient(),t=await task(p.id);
  await db.query("UPDATE tasks SET status='CANCELLED',created_at=now()-interval '100 days' WHERE id=$1",[t.id]);
  assert.equal((await c.tasks(d2)).some(x=>x.id===t.id),false);
- const archived=(await c.tasks(d2,{archive:'true'})).find(x=>x.id===t.id);assert.equal(archived.creator,d1.name);
- assert.equal((await c.tasks(therapist,{archive:'true'})).some(x=>x.id===t.id),false);
+ const archived=(await c.tasks(admin,{archive:'true'})).find(x=>x.id===t.id);assert.equal(archived.creator,d1.name);
+ await assert.rejects(()=>c.tasks(therapist,{archive:'true'}));
+ await assert.rejects(()=>c.tasks(d2,{archive:'true'}));
  assert.ok((await c.messages(d2)).some(x=>x.patient_id===p.id&&x.body.includes(d1.name)&&x.body.includes('призначення')));
  await assert.rejects(()=>c.duplicates(n1,{address:'вул. тестова 145 кв 9'}));
 });
@@ -229,4 +231,18 @@ test('Prescription retries are atomic, scoped to author, and reject changed payl
  const other=await c.task(d2,input);assert.notEqual(other.id,first.id);
  const restarted=new Care(db,'test-secret-with-at-least-thirty-two-characters');
  assert.equal((await restarted.task(d1,input)).id,first.id);
+});
+
+test('Shift queue spans midnight, keeps overdue work, excludes future courses and prior completions',async()=>{
+ const nurse=await actor('NURSE','shift-'+crypto.randomUUID());await approvedShift(nurse);
+ await db.query("UPDATE shifts SET starts_at=now()-interval '8 hours',ends_at=now()+interval '4 hours' WHERE user_id=$1",[nurse.id]);
+ const p=await patient(),overdue=await task(p.id),future=await task(p.id),done=await task(p.id),old=await task(p.id);
+ await db.query("UPDATE tasks SET scheduled_at=now()-interval '2 days' WHERE id=$1",[overdue.id]);
+ await db.query("UPDATE tasks SET scheduled_at=now()+interval '1 day' WHERE id=$1",[future.id]);
+ for(const t of [done,old]){await c.taskAction(nurse,t.id,'claim');await c.taskAction(nurse,t.id,'complete',{identity_confirmed:true,outcome:'Виконано'});}
+ await db.query("UPDATE tasks SET completed_at=now()-interval '9 hours' WHERE id=$1",[old.id]);
+ const rows=await c.tasks(nurse,{scope:'shift'}),ids=rows.map(t=>t.id);
+ assert.ok(ids.includes(overdue.id));assert.ok(ids.includes(done.id));assert.ok(!ids.includes(future.id));assert.ok(!ids.includes(old.id));
+ await db.query('UPDATE shifts SET ends_at=now() WHERE user_id=$1',[nurse.id]);
+ await assert.rejects(()=>c.tasks(nurse,{scope:'shift'}));
 });

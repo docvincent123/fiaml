@@ -12,6 +12,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -94,6 +95,8 @@ class NativeActivity : ComponentActivity() {
         if(savedInstanceState==null)routeIntent(intent)
         setContent { MaterialTheme(colorScheme=palette) { Surface(Modifier.fillMaxSize()) { App() } } }
     }
+    override fun onResume(){super.onResume();ShiftAlertsService.setActivityVisible(this,true)}
+    override fun onPause(){ShiftAlertsService.setActivityVisible(this,false);super.onPause()}
     override fun onNewIntent(intent:Intent){super.onNewIntent(intent);setIntent(intent);routeIntent(intent)}
     private fun routeIntent(intent:Intent){if(!intent.hasExtra("destination"))return
         model.select(when(intent.getStringExtra("destination")){"/messages"->"messages";"/tasks","/pool"->"tasks";"/handovers"->"handovers";"/settings"->"settings";else->"home"})
@@ -210,14 +213,13 @@ class NativeActivity : ComponentActivity() {
         if(m.user?.s("role")!="ADMIN"&&m.user?.optBoolean("onShift")!=true)item{OutlinedButton(enabled=!m.busy,onClick={m.write("/shift",JSONObject().put("start",true))}){Text("Надіслати запит адміністратору")}}
         item{InfoCard("Ваш робочий простір",m.user?.s("name") ?: "",if(m.user?.s("role")=="ADMIN")"Керування центром" else if(m.user?.optBoolean("onShift")==true)"Зміна активна • дані центру поруч" else "Очікує підтвердження адміністратора")}
         items((m.data as? JSONObject)?.optJSONArray("appointments")?.objects() ?: emptyList()){ap->ActionTile("${localTime(ap.s("starts_at"))} — ${localTime(ap.s("ends_at"))}","${ap.s("patient_name")} · ${ap.s("cabinet_name")}",Icons.Outlined.CalendarMonth){open("/patients?patient="+ap.s("patient_id"))}}
-        items((m.data as? JSONObject)?.optJSONArray("metrics")?.objects() ?: emptyList()){metric->ActionTile(metric.s("label"),metric.s("value"),Icons.Outlined.Insights){open(metric.s("path"))}}
+        items((m.data as? JSONObject)?.optJSONArray("metrics")?.objects()?.filter{it.s("path")!="/archive"} ?: emptyList()){metric->ActionTile(metric.s("label"),metric.s("value"),Icons.Outlined.Insights){open(metric.s("path"))}}
         if(m.can("patients.read"))item{ActionTile("Пацієнти","Знайти картку та лікуючого лікаря",Icons.Outlined.People){m.select("patients")}}
         if(m.can("tasks.work")||m.can("tasks.read"))item{ActionTile("Завдання та призначення","План роботи і результати виконання",Icons.Outlined.Assignment){m.select("tasks")}}
         if(m.can("rooms.read"))item{ActionTile("Палати та ліжка","Вільні місця і розміщення",Icons.Outlined.Bed){open("/rooms")}}
         if(m.can("appointments.read"))item{ActionTile("Розклад","Записи та процедури",Icons.Outlined.CalendarMonth){open(if(m.can("appointments.manage"))"/cabinets" else "/schedule")}}
         if(m.can("handover.manage"))item{ActionTile("Передача пацієнтів","Підсумок зміни та прийняття пацієнтів",Icons.Outlined.SwapHoriz){open("/handovers")}}
         if(m.can("shift.handover"))item{ActionTile("Передати робочу зміну","Передача незавершених завдань колезі",Icons.Outlined.SwapHoriz){open("/pool")}}
-        if(m.can("archive.read"))item{ActionTile("Архів","Виписки та історія госпіталізацій",Icons.Outlined.Inventory2){open("/archive")}}
         if(m.can("users.manage"))item{ActionTile("Команда і права","Облікові записи персоналу",Icons.Outlined.AdminPanelSettings){open("/users")}}
         if(m.can("sessions.manage"))item{ActionTile("Пристрої та сесії","Активні підключення",Icons.Outlined.Devices){open("/sessions")}}
         if(m.can("audit.read"))item{ActionTile("Журнал дій","Перевірка змін у системі",Icons.Outlined.History){open("/audit")}}
@@ -276,10 +278,12 @@ private val taskStatuses=mapOf("OPEN" to "У пулі","IN_PROGRESS" to "У ро
     var filter by remember {mutableStateOf("ALL")};var selected by remember {mutableStateOf<JSONObject?>(null)}
     val rows=(m.data as? JSONArray)?.objects() ?: emptyList()
     Column {
-        Row{FilterChip(selected=!m.archive,onClick={m.archive=false;m.offset=0;m.changed++;filter="ALL"},label={Text("Активні")});Spacer(Modifier.width(8.dp));FilterChip(selected=m.archive,onClick={m.archive=true;m.offset=0;m.changed++;filter="ALL"},label={Text("Архів")})}
-        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+        Text("Завдання за зміну",style=MaterialTheme.typography.titleLarge)
+        Text("Заплановані до кінця зміни, незавершені та виконані за зміну",style=MaterialTheme.typography.bodySmall)
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){
             FilterChip(selected=filter=="OPEN",onClick={filter="OPEN"},label={Text("У пулі")})
             FilterChip(selected=filter=="IN_PROGRESS",onClick={filter="IN_PROGRESS"},label={Text("У роботі")})
+            FilterChip(selected=filter=="COMPLETED",onClick={filter="COMPLETED"},label={Text("Виконані")})
             FilterChip(selected=filter=="ALL",onClick={filter="ALL"},label={Text("Усі")})
         }
         if(m.can("tasks.create"))TextButton(onClick={prescribing=true}){Icon(Icons.Outlined.AddCircleOutline,null);Text("Додати призначення")}
@@ -293,7 +297,7 @@ private val taskStatuses=mapOf("OPEN" to "У пулі","IN_PROGRESS" to "У ро
                     Text("${taskStatuses[t.s("status")] ?: ""} • ${localTime(t.s("scheduled_at"))}",color=MaterialTheme.colorScheme.primary)
                     Text("Додав: ${t.s("creator").ifEmpty{"—"}} · ${localTime(t.s("created_at"))}",style=MaterialTheme.typography.bodySmall)
                     Text(t.s("description"));if(t.s("medication").isNotEmpty())Text("${t.s("medication")} • ${t.s("dose")} ${t.s("dose_unit")} • ${t.s("route")}")
-                    Text("Палата ${t.s("room_number").ifEmpty{"—"}} • ${t.s("cabinet_name")}",style=MaterialTheme.typography.bodySmall)
+                    Text("Палата ${t.s("room_number").ifEmpty{"—"}} • Ліжко ${t.s("bed_number").ifEmpty{"—"}} • ${t.s("cabinet_name")}",style=MaterialTheme.typography.bodySmall)
                     if(t.optBoolean("not_done"))Text("Не виконано: ${t.s("outcome")}",color=MaterialTheme.colorScheme.error)
                     else if(t.s("outcome").isNotEmpty())Text("Результат: ${t.s("outcome")}")
                     if(m.can("tasks.work")&&t.s("status")=="OPEN"){
@@ -358,9 +362,9 @@ private fun localTime(value:String):String=runCatching{java.time.OffsetDateTime.
             Text("Початок: ${scheduled.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))}\nКількість: $count • інтервал: $interval год")
         }else{
             if(selected==null){
-                OutlinedTextField(query,{if(it.length<=200)query=it},label={Text("Знайти пацієнта")},singleLine=true,modifier=Modifier.fillMaxWidth())
+                OutlinedTextField(query,{if(it.length<=200)query=it},label={Text("Пацієнт, номер, палата або ліжко")},singleLine=true,modifier=Modifier.fillMaxWidth())
                 if(loadError.isNotEmpty())ErrorCard(loadError)
-                patients.take(8).forEach{p->TextButton(onClick={selected=p},modifier=Modifier.fillMaxWidth()){Text("${p.s("name")} • ${p.s("birth_date").take(10)}")}}
+                patients.take(8).forEach{p->TextButton(onClick={selected=p},modifier=Modifier.fillMaxWidth()){Text("${p.s("name")} • № ${p.s("patient_number")} • Палата ${p.s("room_number").ifEmpty{"—"}} • Ліжко ${p.s("bed_number").ifEmpty{"—"}}")}}
                 Text("Уточніть пошук, якщо потрібної картки немає серед перших результатів.",style=MaterialTheme.typography.bodySmall)
             }else{Text(selected!!.s("name"),fontWeight=FontWeight.Bold);TextButton(onClick={selected=null}){Text("Інший пацієнт")}}
             Choice("Вид призначення",kind,listOf("Догляд","Ліки","Реабілітація")){kind=it;executor=if(it=="Реабілітація")"THERAPIST" else "NURSE";if(it!="Ліки"){medication="";dose="";unit="";route=""}}

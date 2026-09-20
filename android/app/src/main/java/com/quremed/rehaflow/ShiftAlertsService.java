@@ -15,8 +15,13 @@ import java.util.concurrent.*;
 /** Visible, user-controlled LAN polling. Session credentials exist only in memory. */
 public final class ShiftAlertsService extends Service {
     public static volatile boolean running=false;
+    private static volatile boolean activityVisible=false;
+    public static synchronized void setActivityVisible(Context context, boolean visible) {
+        activityVisible=visible;
+        if(visible) context.getSystemService(NotificationManager.class).cancel(EVENT_ID);
+    }
     public static volatile String state="Сповіщення не ввімкнено";
-    private static final String STATUS="rehaflow_connection", EVENTS="rehaflow_events_v1";
+    private static final String STATUS="rehaflow_connection", EVENTS="rehaflow_events_v2";
     private static final int STATUS_ID=41, EVENT_ID=42;
     private ScheduledExecutorService executor;
     private volatile String server="",bearer="",user="";
@@ -28,7 +33,7 @@ public final class ShiftAlertsService extends Service {
         NotificationChannel status=new NotificationChannel(STATUS,"Зв’язок із центром",NotificationManager.IMPORTANCE_LOW);
         status.setSound(null,null);status.setShowBadge(false);
         NotificationChannel events=new NotificationChannel(EVENTS,"Повідомлення та завдання",NotificationManager.IMPORTANCE_HIGH);
-        events.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION).build());
+        events.setSound(android.net.Uri.parse("android.resource://"+context.getPackageName()+"/raw/task_ringtone"),new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION).build());
         events.enableVibration(true);events.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
         manager.createNotificationChannel(status);manager.createNotificationChannel(events);
     }
@@ -37,12 +42,13 @@ public final class ShiftAlertsService extends Service {
         intent.putExtra("destination",path);
         return PendingIntent.getActivity(context,path.hashCode(),intent,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
     }
-    public static void alert(Context context,String title,String text,String path){
+    public static synchronized void alert(Context context,String title,String text,String path){
         if(Build.VERSION.SDK_INT>=33&&context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)return;
         channels(context);
         Notification notification=new Notification.Builder(context,EVENTS).setSmallIcon(com.quremed.rehaflow.R.drawable.notification_icon)
             .setContentTitle(title).setContentText(text).setContentIntent(open(context,path)).setAutoCancel(true)
             .setVisibility(Notification.VISIBILITY_PRIVATE).setCategory(Notification.CATEGORY_MESSAGE).build();
+        if("/tasks".equals(path) && !activityVisible) notification.flags |= Notification.FLAG_INSISTENT;
         try{context.getSystemService(NotificationManager.class).notify(EVENT_ID,notification);}catch(SecurityException ignored){}
     }
     private Notification statusNotification(String text){
@@ -90,7 +96,7 @@ public final class ShiftAlertsService extends Service {
             int fresh=0,tasks=0;String path="/";
             for(int i=0;i<events.length();i++){JSONObject event=events.getJSONObject(i);String eventId=event.getString("id");now.add(eventId);if(!seen.contains(eventId)){fresh++;if("task".equals(event.optString("kind")))tasks++;path=event.getString("path");}}
             if(version!=generation||ended)return;
-            if(fresh>0)alert(this,tasks>0?"RehaFlow · нове завдання":"RehaFlow · нові події","Нових подій: "+fresh+". Відкрийте застосунок.",tasks>0?"/tasks":path);
+            if(fresh>0 && preferences.contains(key))alert(this,tasks>0?"RehaFlow · нове завдання":"RehaFlow · нові події","Нових подій: "+fresh+". Відкрийте застосунок.",tasks>0?"/tasks":path);
             // Keep recently seen events even when they temporarily leave the server's feed.
             if(seen.size()+now.size()<=2000)now.addAll(seen);
             preferences.edit().putStringSet(key,now).apply();
@@ -102,5 +108,5 @@ public final class ShiftAlertsService extends Service {
         state="Android зупинив фонову синхронізацію. Відкрийте RehaFlow.";
         alert(this,"Відкрийте RehaFlow",state,"/settings");stopSelf();
     }
-    @Override public void onDestroy(){ended=true;generation++;running=false;bearer="";server="";user="";if(executor!=null)executor.shutdownNow();stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();}
+    @Override public void onDestroy(){getSystemService(NotificationManager.class).cancel(EVENT_ID);ended=true;generation++;running=false;bearer="";server="";user="";if(executor!=null)executor.shutdownNow();stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();}
 }

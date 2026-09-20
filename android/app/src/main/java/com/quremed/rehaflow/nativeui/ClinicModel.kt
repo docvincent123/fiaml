@@ -18,7 +18,6 @@ class ClinicModel : ViewModel() {
     var loading by mutableStateOf(false); private set
     var search by mutableStateOf("")
     var offset by mutableIntStateOf(0)
-    var archive by mutableStateOf(false)
     var changed by mutableIntStateOf(0)
     var synchronizedAt by mutableStateOf(""); private set
     var uncertain by mutableStateOf(false); private set
@@ -74,12 +73,11 @@ class ClinicModel : ViewModel() {
             val path = when (selected) {
                 "home" -> "/operations"
                 "patients" -> "/patients?status=ACTIVE&offset=$offset&q=" + java.net.URLEncoder.encode(search, "UTF-8")
-                "tasks" -> "/tasks?archive=$archive&offset=$offset"
+                "tasks" -> "/tasks?scope=shift&offset=$offset"
                 "messages" -> "/care/messages"
                 "rooms" -> "/rooms"
                 "schedule" -> "/appointments"
                 "handovers" -> "/care/handovers"
-                "archive" -> "/patients?status=ARCHIVED&offset=$offset"
                 "users" -> "/users"
                 "sessions" -> "/sessions"
                 "audit" -> "/audit"
