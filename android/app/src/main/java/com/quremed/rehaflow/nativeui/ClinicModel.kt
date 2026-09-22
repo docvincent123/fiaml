@@ -58,6 +58,10 @@ class ClinicModel : ViewModel() {
         busy=true
         viewModelScope.launch{try{user=ClinicApi.request("/auth/me") as JSONObject;changed++;done()}catch(e:Exception){fail(e)}finally{busy=false}}
     }
+    private fun todayAppointmentsPath(): String {
+        val start=java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault())
+        return "/appointments?mine=true&from="+start.toInstant().toString()+"&to="+start.plusDays(1).toInstant().toString()
+    }
     fun select(next: String) { page = next; data = null; patient = null; error = ""; search = ""; offset = 0; changed++ }
     suspend fun refresh() {
         if (loading || busy || user == null) return
@@ -76,7 +80,7 @@ class ClinicModel : ViewModel() {
                 "tasks" -> "/tasks?scope=shift&offset=$offset"
                 "messages" -> "/care/messages"
                 "rooms" -> "/rooms"
-                "schedule" -> "/appointments"
+                "schedule" -> todayAppointmentsPath()
                 "handovers" -> "/care/handovers"
                 "users" -> "/users"
                 "sessions" -> "/sessions"

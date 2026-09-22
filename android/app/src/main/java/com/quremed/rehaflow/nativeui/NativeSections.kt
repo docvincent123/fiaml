@@ -15,7 +15,7 @@ import org.json.JSONObject
 /** All routes here use Compose and the authenticated API; no browser or WebView. */
 @Composable fun NativeSection(m:ClinicModel,open:(String)->Unit){
     val rows=(m.data as? JSONArray)?.objects() ?: emptyList()
-    val titles=mapOf("rooms" to "Палати та ліжка","schedule" to "Розклад процедур","handovers" to "Передача пацієнтів","users" to "Команда","sessions" to "Сесії","audit" to "Журнал дій","approvals" to "Початок зміни","registration" to "Реєстрація","compose" to "Нове повідомлення")
+    val titles=mapOf("rooms" to "Палати та ліжка","schedule" to "Мої пацієнти сьогодні","handovers" to "Передача пацієнтів","users" to "Команда","sessions" to "Сесії","audit" to "Журнал дій","approvals" to "Початок зміни","registration" to "Реєстрація","compose" to "Нове повідомлення")
     LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp),contentPadding=PaddingValues(bottom=24.dp)){
         item{Text(titles[m.page] ?: "Розділ",style=MaterialTheme.typography.headlineSmall);TextButton(onClick={m.select("home")}){Text("До огляду")}}
         when(m.page){
@@ -24,7 +24,7 @@ import org.json.JSONObject
             "schedule"->item{if(m.can("appointments.manage"))AppointmentForm(m)}
             "handovers"->item{HandoverForm(m)}
         }
-        if(rows.isEmpty()&&m.page !in listOf("registration","compose"))item{Text(if(m.loading)"Завантажуємо…" else "Записів поки немає")}
+        if(rows.isEmpty()&&m.page !in listOf("registration","compose"))item{Text(if(m.loading)"Завантажуємо…" else if(m.page=="schedule")"На сьогодні записів до вас немає" else "Записів поки немає")}
         items(rows,key={it.s("id")}){r->
             Card(Modifier.fillMaxWidth()){Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
                 when(m.page){

@@ -246,3 +246,36 @@ test('Shift queue spans midnight, keeps overdue work, excludes future courses an
  await db.query('UPDATE shifts SET ends_at=now() WHERE user_id=$1',[nurse.id]);
  await assert.rejects(()=>c.tasks(nurse,{scope:'shift'}));
 });
+
+test('Task ringtone eligibility is limited to active nurses and therapists, never doctors or admin',async()=>{
+ const nurse=await actor('NURSE','sound-n-'+crypto.randomUUID()),rehab=await actor('THERAPIST','sound-t-'+crypto.randomUUID());
+ await approvedShift(nurse);await approvedShift(rehab);await approvedShift(d1);
+ const p=await patient(),n=await task(p.id),t=await task(p.id,{executor_role:'THERAPIST'});
+ for(const [who,own,other] of [[nurse,n,t],[rehab,t,n]] as const){
+  const feed=await c.notificationFeed(who);assert.equal('taskAlerts' in feed&&feed.taskAlerts,true);
+  assert.ok(feed.events.some(e=>e.id.startsWith('task:'+own.id)));
+  assert.ok(!feed.events.some(e=>e.id.startsWith('task:'+other.id)));
+ }
+ for(const who of [d1,admin]){const feed=await c.notificationFeed(who);assert.equal('taskAlerts' in feed&&feed.taskAlerts,false);assert.ok(!feed.events.some(e=>e.kind==='task'));}
+ await c.shift(nurse,{start:false});assert.equal((await c.notificationFeed(nurse)).active,false);
+});
+test('Today schedule enforces specialist ownership and exclusive day boundary',async()=>{
+ const rehab=await actor('THERAPIST','today-'+crypto.randomUUID());await approvedShift(rehab);
+ const p=await patient(),cabinet=await c.cabinet(admin,{name:'Today '+crypto.randomUUID(),type:'rehab'});
+ const base={patient_id:p.id,cabinet_id:cabinet.id,staff_id:rehab.id};
+ const own=await c.appointment(d1,{...base,starts_at:'2036-04-01T09:00:00+03:00',ends_at:'2036-04-01T09:30:00+03:00'});
+ const other=await c.appointment(d1,{...base,staff_id:d2.id,starts_at:'2036-04-01T10:00:00+03:00',ends_at:'2036-04-01T10:30:00+03:00'});
+ const tomorrow=await c.appointment(d1,{...base,starts_at:'2036-04-02T00:00:00+03:00',ends_at:'2036-04-02T00:30:00+03:00'});
+ const period={from:'2036-04-01T00:00:00+03:00',to:'2036-04-02T00:00:00+03:00'};
+ const rows=await c.appointments(rehab,{...period,mine:'false'});
+ assert.deepEqual(rows.map(x=>x.id),[own.id]);assert.equal(rows[0].patient_name,p.name);assert.equal(rows[0].staff_name,rehab.name);
+ const all=await c.appointments(admin,period);assert.ok(all.some(x=>x.id===other.id));assert.ok(!all.some(x=>x.id===tomorrow.id));
+ await assert.rejects(()=>c.appointments(rehab,{from:period.from}));
+ await assert.rejects(()=>c.appointments(rehab,{from:period.to,to:period.from}));
+});
+test('Clinical roles receive patient identity, address and treatment authors through the native card API',async()=>{
+ const p=await patient(),t=await task(p.id);
+ await c.entry(d1,p.id,{kind:'ASSESSMENT',body:'Огляд',data:{history:'Анамнез зі слів пацієнта',diagnosis:'Опис',allergies:'Уточнено',plan:'План'}});
+ for(const who of [d1,n1,therapist]){const card=await c.patient(who,p.id);assert.equal(card.name,p.name);assert.equal(card.address,'Адреса');assert.equal(card.timelineTasks.find(x=>x.id===t.id).creator,d1.name);assert.equal(card.entries[0].data.history,'Анамнез зі слів пацієнта');}
+ for(const who of [d1,n1,therapist])await assert.rejects(()=>c.patients(who,{status:'ARCHIVED'}));
+});

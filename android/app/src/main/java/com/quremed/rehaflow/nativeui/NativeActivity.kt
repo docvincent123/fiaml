@@ -197,7 +197,7 @@ class NativeActivity : ComponentActivity() {
             item{InfoCard("Ваш профіль",m.user?.s("name") ?: "",m.user?.s("role_label")?.takeIf{it.isNotEmpty()} ?: roles[m.user?.s("role")] ?: "")}
             item{InfoCard("Цей пристрій",Build.MANUFACTURER+" "+Build.MODEL,"Android ${Build.VERSION.RELEASE}\nRehaFlow ${info.versionName}\nКод установлення: $identity\nКод зміниться після очищення даних або перевстановлення.")}
             item{Card{Column(Modifier.padding(18.dp)){Text("Сповіщення",style=MaterialTheme.typography.titleMedium);Row(verticalAlignment=Alignment.CenterVertically){Text("Звук і нові завдання",Modifier.weight(1f));Switch(alerts,{alerts=it;getSharedPreferences("shift-alerts",MODE_PRIVATE).edit().putBoolean("enabled",it).apply();if(it)onAlerts() else stopAlerts()})};Text(ShiftAlertsService.state);TextButton(onClick={runCatching{startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,packageName))}}){Text("Звук і дозволи Android")}}}}
-            item{OutlinedButton(onClick={ShiftAlertsService.alert(this@NativeActivity,"RehaFlow","Перевірка звуку сповіщення","/settings")}){Text("Перевірити звук сповіщення")}}
+            item{OutlinedButton(onClick={ShiftAlertsService.testSound(this@NativeActivity)}){Text("Перевірити звук сповіщення")}}
             item{InfoCard("З’єднання",NativeSession.server,"Списки перевіряються кожні 5 секунд, поки застосунок відкритий. Останній зв’язок: ${m.synchronizedAt.ifEmpty{"—"}}")}
             item{CertificateHelp();OutlinedButton(enabled=!m.busy,onClick=onServer){Text("Вийти та змінити сервер")}}
             item{NativePassword(m)}
@@ -281,7 +281,7 @@ class NativeActivity : ComponentActivity() {
         item{Text("Огляди та медичні записи",style=MaterialTheme.typography.titleLarge)}
         items(p.optJSONArray("entries")?.objects() ?: emptyList()){e->
             InfoCard("Медичний запис · ${localTime(e.s("created_at"))}","Додав: ${e.s("author")}",e.s("body"))
-            val labels=mapOf("complaints" to "Скарги","diagnosis" to "Діагноз","allergies" to "Алергії","plan" to "План","goals" to "Цілі","assessment" to "Оцінка","result" to "Результат","next_plan" to "Наступний план","recommendations" to "Рекомендації")
+            val labels=mapOf("complaints" to "Скарги","history" to "Анамнез","diagnosis" to "Діагноз","allergies" to "Алергії","plan" to "План","goals" to "Цілі","assessment" to "Оцінка","result" to "Результат","next_plan" to "Наступний план","recommendations" to "Рекомендації")
             e.optJSONObject("data")?.let{data->labels.forEach{(key,label)->if(data.s(key).isNotEmpty())Text(label+": "+data.s(key))}}
         }
         items(p.optJSONArray("admissions")?.objects() ?: emptyList()){a->InfoCard("Госпіталізація",a.s("admitted_at").take(10),"${if(a.s("discharged_at").isEmpty())"Триває" else "Виписано: "+a.s("discharged_at").take(10)}\nЛікар: ${a.s("doctor_name").ifEmpty{"—"}}")}
@@ -409,6 +409,7 @@ private fun localTime(value:String):String=runCatching{java.time.OffsetDateTime.
 
 @Composable private fun Examination(m:ClinicModel,patient:JSONObject,close:()->Unit){
     var complaints by remember {mutableStateOf("")}
+    var history by remember {mutableStateOf("")}
     var diagnosis by remember {mutableStateOf("")}
     var allergies by remember {mutableStateOf("")}
     var plan by remember {mutableStateOf("")}
@@ -419,6 +420,7 @@ private fun localTime(value:String):String=runCatching{java.time.OffsetDateTime.
         text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
             Text("Запис буде збережено з вашим ім’ям і часом. Заповнюйте лише перевірені дані.")
             OutlinedTextField(value=complaints,onValueChange={complaints=it.take(4000)},label={Text("Скарги")},minLines=2,modifier=Modifier.fillMaxWidth())
+            OutlinedTextField(value=history,onValueChange={history=it.take(4000)},label={Text("Анамнез")},minLines=3,modifier=Modifier.fillMaxWidth())
             OutlinedTextField(value=diagnosis,onValueChange={diagnosis=it.take(4000)},label={Text("Діагноз / робочий висновок")},minLines=2,modifier=Modifier.fillMaxWidth())
             OutlinedTextField(value=allergies,onValueChange={allergies=it.take(4000)},label={Text("Алергії — вкажіть, якщо не уточнено")},modifier=Modifier.fillMaxWidth())
             OutlinedTextField(value=plan,onValueChange={plan=it.take(10000)},label={Text("План лікування")},minLines=3,modifier=Modifier.fillMaxWidth())
@@ -427,7 +429,7 @@ private fun localTime(value:String):String=runCatching{java.time.OffsetDateTime.
             if(m.uncertain)Text("Збереження не підтверджено. Перевірте історію картки перед повторною дією.")
         }},
         confirmButton={TextButton(enabled=!m.busy&&!m.uncertain&&listOf(complaints,diagnosis,allergies,plan,summary).all{it.isNotBlank()},onClick={
-            m.write("/patients/"+patient.s("id")+"/entries",JSONObject().put("kind","ASSESSMENT").put("body",summary).put("data",JSONObject().put("complaints",complaints).put("diagnosis",diagnosis).put("allergies",allergies).put("plan",plan))){
+            m.write("/patients/"+patient.s("id")+"/entries",JSONObject().put("kind","ASSESSMENT").put("body",summary).put("data",JSONObject().put("complaints",complaints).put("history",history).put("diagnosis",diagnosis).put("allergies",allergies).put("plan",plan))){
                 m.openPatient(patient.s("id"));close()
             }
         }){Text(if(m.busy)"Зберігаємо…" else "Зберегти огляд")}},
