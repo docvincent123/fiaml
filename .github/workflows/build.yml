@@ -173,5 +173,5 @@ jobs:
           Copy-Item artifacts/server-source.zip artifacts/QureMed-Local-Server.zip
           $notes = Join-Path $env:RUNNER_TEMP 'release-notes.txt'
           Set-Content -LiteralPath $notes -Value 'Test build: Windows installer, portable client and server source. See docs/OPERATIONS-2.3.md and docs/STAFF-2.2.md and docs/INSTALLER-2.1.md. Not code-signed; real-device server setup still requires verification.'
-          gh release create $tag artifacts/installer/RehaFlow-Setup-x64.exe artifacts/RehaFlow-Windows-x64.zip artifacts/QureMed-Local-Server.zip --draft --target $env:GITHUB_SHA --title 'RehaFlow 3.0.0 - Windows test build' --notes-file $notes
+          gh release create $tag artifacts/installer/RehaFlow-Setup-x64.exe artifacts/RehaFlow-Windows-x64.zip artifacts/QureMed-Local-Server.zip --draft --target $env:GITHUB_SHA --title 'RehaFlow 4.0.0 - Windows test build' --notes-file $notes
           if ($LASTEXITCODE -ne 0) { throw 'Could not save draft release files' }

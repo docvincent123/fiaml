@@ -38,8 +38,8 @@ import org.json.JSONObject
                     "handovers"->{Text(r.s("patient_name"),style=MaterialTheme.typography.titleLarge);Text(r.s("from_name")+" → "+r.s("to_name"));Text(r.s("summary"))
                         if(r.s("status")=="PENDING"&&r.s("to_id")==m.user?.s("id"))Button(enabled=!m.busy&&!m.uncertain,onClick={m.write("/care/handovers/"+r.s("id")+"/accept")}){Text("Прийняти пацієнта")}
                     }
-                    "approvals"->{Text(r.s("name"));Text(r.s("role_label").ifEmpty{r.s("role")});Row{
-                        Button(enabled=!m.busy,onClick={m.write("/shift/requests/"+r.s("id")+"/approve")}){Text("Підтвердити")}
+                    "approvals"->{var hours by remember(r.s("id")){mutableStateOf(12)};Text("Тривалість зміни");Row{listOf(8,12,24).forEach{h->FilterChip(selected=hours==h,onClick={hours=h},label={Text("$h год")})}};Text(r.s("name"));Text(r.s("role_label").ifEmpty{r.s("role")});Row{
+                        Button(enabled=!m.busy,onClick={m.write("/shift/requests/"+r.s("id")+"/approve",JSONObject().put("duration_hours",hours))}){Text("Підтвердити")}
                         TextButton(enabled=!m.busy,onClick={m.write("/shift/requests/"+r.s("id")+"/reject")}){Text("Відхилити")}
                     }}
                     "users"->{Text(r.s("name"),style=MaterialTheme.typography.titleLarge);Text(r.s("role_label").ifEmpty{r.s("role")});Text(r.s("specialty"));Text(if(r.optBoolean("active"))"Активний" else "Вимкнений")}
@@ -87,30 +87,34 @@ private fun displayTime(v:String)=runCatching{java.time.OffsetDateTime.parse(v).
     }
 }
 @Composable private fun AppointmentForm(m:ClinicModel){
-    var expanded by remember{mutableStateOf(false)};var patient by remember{mutableStateOf("")};var cabinet by remember{mutableStateOf("")};var staff by remember{mutableStateOf("")}
-    var start by remember{mutableStateOf(java.time.LocalDateTime.now().withSecond(0).withNano(0).toString())};var duration by remember{mutableStateOf("30")}
+    val draft=rememberDraft("appointment:new")
+    var expanded by remember{mutableStateOf(false)};var patient by draftText(draft,"patient","");var cabinet by draftText(draft,"cabinet","");var staff by draftText(draft,"staff","")
+    var start by draftText(draft,"start",java.time.LocalDateTime.now().withSecond(0).withNano(0).toString());var duration by draftText(draft,"duration","30")
     OutlinedButton(onClick={expanded=!expanded}){Text("Записати на процедуру")}
     if(expanded)Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
+        DraftNotice(draft)
         Picker("Пацієнт","/patients?status=ACTIVE",patient,{patient=it});Picker("Кабінет","/cabinets",cabinet,{cabinet=it});Picker("Спеціаліст","/staff",staff,{staff=it})
         OutlinedTextField(start,{start=it},label={Text("Дата й час: 2026-09-19T14:30")},modifier=Modifier.fillMaxWidth())
         OutlinedTextField(duration,{duration=it.filter(Char::isDigit).take(3)},label={Text("Тривалість, хвилин")})
         val at=runCatching{java.time.LocalDateTime.parse(start).atZone(java.time.ZoneId.systemDefault())}.getOrNull()
-        Button(enabled=!m.busy&&!m.uncertain&&patient.isNotEmpty()&&cabinet.isNotEmpty()&&at!=null&&(duration.toIntOrNull() ?: 0)>0,onClick={
-            m.write("/appointments",JSONObject().put("patient_id",patient).put("cabinet_id",cabinet).put("staff_id",staff.ifEmpty{null}).put("starts_at",at!!.toInstant().toString()).put("ends_at",at.plusMinutes(duration.toLong()).toInstant().toString())){expanded=false}
+        Button(enabled=draft.error.isEmpty()&&!m.busy&&!m.uncertain&&patient.isNotEmpty()&&cabinet.isNotEmpty()&&at!=null&&(duration.toIntOrNull() ?: 0)>0,onClick={
+            m.write("/appointments",JSONObject().put("request_id",draft.id).put("patient_id",patient).put("cabinet_id",cabinet).put("staff_id",staff.ifEmpty{null}).put("starts_at",at!!.toInstant().toString()).put("ends_at",at.plusMinutes(duration.toLong()).toInstant().toString()),draftScope=draft.scope){expanded=false;m.select("schedule")}
         }){Text("Записати")}
     }
 }
 @Composable private fun Registration(m:ClinicModel){
-    val values=remember{mutableStateMapOf<String,String>()}
-    var bed by remember{mutableStateOf("")}
-    var doctor by remember{mutableStateOf("")};var duplicate by remember{mutableStateOf(false)}
+    val draft=rememberDraft("registration:new")
+    val values=remember(draft){mutableStateMapOf<String,String>().apply{listOf("name","birth_date","phone","address","emergency_contact","complaints","referral").forEach{put(it,draft.get(it))}}}
+    var bed by draftText(draft,"bed","")
+    var doctor by draftText(draft,"doctor","");var duplicate by remember{mutableStateOf(false)}
     if(!m.can("patients.manage"))return
     Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
-        listOf("name" to "ПІБ *","birth_date" to "Дата народження: РРРР-ММ-ДД *","phone" to "Телефон","address" to "Адреса","emergency_contact" to "Контакт близької людини","complaints" to "Скарги, причина звернення *","referral" to "Направлення").forEach{(key,label)->OutlinedTextField(values[key] ?: "",{values[key]=it.take(1000)},label={Text(label)},modifier=Modifier.fillMaxWidth())}
+        DraftNotice(draft)
+        listOf("name" to "ПІБ *","birth_date" to "Дата народження: РРРР-ММ-ДД *","phone" to "Телефон","address" to "Адреса","emergency_contact" to "Контакт близької людини","complaints" to "Скарги, причина звернення *","referral" to "Направлення").forEach{(key,label)->OutlinedTextField(values[key] ?: "",{values[key]=it.take(1000);draft.set(key,it.take(1000))},label={Text(label)},modifier=Modifier.fillMaxWidth())}
         Picker("Лікуючий лікар","/staff",doctor,{doctor=it},{it.s("role")=="DOCTOR"})
         BedPicker(bed){bed=it}
         Row{Checkbox(duplicate,{duplicate=it});Text("Перевірено: це інша людина, навіть якщо ПІБ і дата народження збігаються")}
-        Button(enabled=!m.busy&&!m.uncertain&&!values["name"].isNullOrBlank()&&!values["complaints"].isNullOrBlank()&&runCatching{java.time.LocalDate.parse(values["birth_date"] ?: "")}.isSuccess,onClick={val b=JSONObject();values.forEach{(k,v)->b.put(k,v)};b.put("doctor_id",doctor.ifEmpty{null}).put("bed_id",bed.ifEmpty{null}).put("duplicate_ack",duplicate);m.write("/patients",b){m.select("patients")}}){Text("Зареєструвати")}
+        Button(enabled=draft.error.isEmpty()&&!m.busy&&!m.uncertain&&!values["name"].isNullOrBlank()&&!values["complaints"].isNullOrBlank()&&runCatching{java.time.LocalDate.parse(values["birth_date"] ?: "")}.isSuccess,onClick={val b=JSONObject().put("request_id",draft.id);values.forEach{(k,v)->b.put(k,v)};b.put("doctor_id",doctor.ifEmpty{null}).put("bed_id",bed.ifEmpty{null}).put("duplicate_ack",duplicate);m.write("/patients",b,draftScope=draft.scope){m.select("patients")}}){Text("Зареєструвати")}
     }
 }
 @Composable private fun HandoverForm(m:ClinicModel){
@@ -136,21 +140,25 @@ private fun displayTime(v:String)=runCatching{java.time.OffsetDateTime.parse(v).
 }
 @Composable fun NativeClinicalActions(m:ClinicModel,p:JSONObject){
     var kind by remember{mutableStateOf("")};var body by remember{mutableStateOf("")}
-    val fields=remember{mutableStateMapOf<String,String>()}
+    val admission=p.optJSONArray("admissions")?.objects()?.firstOrNull{it.s("discharged_at").isEmpty()}?.s("id")?:""
+    val draft=rememberDraft("clinical:"+p.s("id")+":"+admission+":"+kind)
+    val fields=remember(draft){mutableStateMapOf<String,String>().apply{listOf("goals","assessment","result","next_plan").forEach{put(it,draft.get(it))}}}
+    LaunchedEffect(draft){body=draft.get("body")}
     Column{
         if(m.can("observations.write"))OutlinedButton(onClick={kind="OBSERVATION"}){Text("Додати спостереження")}
         if(m.can("rehab.write"))OutlinedButton(onClick={kind="REHAB"}){Text("Реабілітаційний запис")}
         p.optJSONArray("notes")?.objects()?.forEach{Text(it.s("author")+" · "+displayTime(it.s("created_at")));Text(it.s("body"))}
     }
     if(kind.isNotEmpty())AlertDialog(onDismissRequest={kind=""},title={Text("Новий запис")},text={Column(Modifier.verticalScroll(rememberScrollState())){
-        OutlinedTextField(body,{body=it.take(20000)},minLines=4,label={Text("Перевірені дані та результати")})
-        if(kind=="REHAB")listOf("goals" to "Цілі","assessment" to "Оцінка","result" to "Результат","next_plan" to "Наступний план").forEach{(key,label)->OutlinedTextField(fields[key] ?: "",{fields[key]=it.take(4000)},label={Text(label)})}
+        DraftNotice(draft)
+        OutlinedTextField(body,{body=it.take(20000);draft.set("body",body)},minLines=4,label={Text("Перевірені дані та результати")})
+        if(kind=="REHAB")listOf("goals" to "Цілі","assessment" to "Оцінка","result" to "Результат","next_plan" to "Наступний план").forEach{(key,label)->OutlinedTextField(fields[key] ?: "",{fields[key]=it.take(4000);draft.set(key,it.take(4000))},label={Text(label)})}
         if(m.error.isNotEmpty())Text(m.error,color=MaterialTheme.colorScheme.error)
-    }},confirmButton={TextButton(enabled=!m.busy&&!m.uncertain&&body.isNotBlank(),onClick={
+    }},confirmButton={TextButton(enabled=draft.error.isEmpty()&&!m.busy&&!m.uncertain&&body.isNotBlank(),onClick={
         val data=JSONObject()
         if(kind=="OBSERVATION")data.put("observed_at",java.time.Instant.now().toString())
         if(kind=="REHAB")listOf("goals","assessment","result","next_plan").forEach{data.put(it,fields[it] ?: "")}
-        m.write("/patients/"+p.s("id")+"/entries",JSONObject().put("kind",kind).put("body",body).put("data",data)){kind="";body="";fields.clear();m.openPatient(p.s("id"))}
+        m.write("/patients/"+p.s("id")+"/entries",JSONObject().put("request_id",draft.id).put("expected_admission_id",admission).put("kind",kind).put("body",body).put("data",data),draftScope=draft.scope){kind="";body="";fields.clear();m.openPatient(p.s("id"))}
     }){Text("Зберегти")}},dismissButton={TextButton(onClick={kind=""}){Text("Скасувати")}})
 }
 

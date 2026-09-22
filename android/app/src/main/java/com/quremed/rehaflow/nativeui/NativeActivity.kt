@@ -57,6 +57,7 @@ private val destinations=listOf(Destination("home","Огляд",Icons.Outlined.D
 
 class NativeActivity : ComponentActivity() {
     private val model: ClinicModel by viewModels()
+    private var stationEnabled by mutableStateOf(false)
     private val scanner = registerForActivityResult(com.journeyapps.barcodescanner.ScanContract()) { result ->
         result.contents?.let { content ->
             try {
@@ -88,7 +89,7 @@ class NativeActivity : ComponentActivity() {
         uri.getQueryParameter("patient")?.let{model.openPatient(it)}
     }
     override fun onCreate(savedInstanceState:Bundle?){
-        super.onCreate(savedInstanceState)
+        super.onCreate(savedInstanceState); DraftStore.initialize(this);stationEnabled=getSharedPreferences("shift-alerts",MODE_PRIVATE).getBoolean("station",false)
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE,WindowManager.LayoutParams.FLAG_SECURE)
         NativeSession.initialize(this)
         NativeSession.server=getSharedPreferences("MainActivity",MODE_PRIVATE).getString("server","") ?: ""
@@ -110,6 +111,7 @@ class NativeActivity : ComponentActivity() {
         var close by remember { mutableStateOf(false) }
         val lifecycle=LocalLifecycleOwner.current.lifecycle
         LaunchedEffect(m.user != null,m.page,m.changed){lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED){while(true){m.refresh();delay(5000)}}}
+        LaunchedEffect(m.workspaceAllowed,stationEnabled){if(m.workspaceAllowed&&stationEnabled)window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)}
         LaunchedEffect(m.workspaceAllowed){if(m.workspaceAllowed){if(!ShiftAlertsService.running)startAlerts()}else stopAlerts()}
         LaunchedEffect(m.user){if(m.user==null && NativeSession.token.isEmpty())stopAlerts()}
         BackHandler(m.user!=null){if(!m.workspaceAllowed)finish() else if(m.patient!=null)m.closePatient() else if(m.page!="home")m.select("home") else close=true}
@@ -168,7 +170,7 @@ class NativeActivity : ComponentActivity() {
                             if(m.can("messages.use"))IconButton(onClick={m.select("messages")}){Icon(Icons.Outlined.Notifications,"Повідомлення")}
                             IconButton(onClick={close=true}){Icon(Icons.Outlined.Logout,"Завершити роботу")}
                         }
-                        if(m.error.isNotEmpty()){ErrorCard(m.error);if(m.uncertain)TextButton(onClick={m.checkedUncertain()}){Text("Стан дії перевірено")}}
+                        if(m.error.isNotEmpty()){ErrorCard(m.error);if(m.uncertain)TextButton(onClick={m.checkedUncertain()}){Text("Повторити непідтверджений запит")}}
                         if(m.message.isNotEmpty())Text(m.message,color=MaterialTheme.colorScheme.primary,style=MaterialTheme.typography.labelMedium)
                         when(m.page){
                             "home"->Home(m,::workspace)
@@ -198,6 +200,7 @@ class NativeActivity : ComponentActivity() {
             item{InfoCard("Цей пристрій",Build.MANUFACTURER+" "+Build.MODEL,"Android ${Build.VERSION.RELEASE}\nRehaFlow ${info.versionName}\nКод установлення: $identity\nКод зміниться після очищення даних або перевстановлення.")}
             item{Card{Column(Modifier.padding(18.dp)){Text("Сповіщення",style=MaterialTheme.typography.titleMedium);Row(verticalAlignment=Alignment.CenterVertically){Text("Звук і нові завдання",Modifier.weight(1f));Switch(alerts,{alerts=it;getSharedPreferences("shift-alerts",MODE_PRIVATE).edit().putBoolean("enabled",it).apply();if(it)onAlerts() else stopAlerts()})};Text(ShiftAlertsService.state);TextButton(onClick={runCatching{startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,packageName))}}){Text("Звук і дозволи Android")}}}}
             item{OutlinedButton(onClick={ShiftAlertsService.testSound(this@NativeActivity)}){Text("Перевірити звук сповіщення")}}
+            item{Card{Column(Modifier.padding(18.dp)){Row(verticalAlignment=Alignment.CenterVertically){Text("Режим поста",Modifier.weight(1f));Switch(stationEnabled,{stationEnabled=it;getSharedPreferences("shift-alerts",MODE_PRIVATE).edit().putBoolean("station",it).apply()})};Text("Під час зміни відкритий застосунок не гасить екран. Для планшета на заряджанні. Блокування або згортання повертає обмеження Android.");Text("Зміна до: "+m.user?.s("shiftEndsAt")?.let{localTime(it)});Text("Вхід діє до: "+m.user?.s("sessionExpiresAt")?.let{localTime(it)})}}}
             item{InfoCard("З’єднання",NativeSession.server,"Списки перевіряються кожні 5 секунд, поки застосунок відкритий. Останній зв’язок: ${m.synchronizedAt.ifEmpty{"—"}}")}
             item{CertificateHelp();OutlinedButton(enabled=!m.busy,onClick=onServer){Text("Вийти та змінити сервер")}}
             item{NativePassword(m)}
@@ -369,18 +372,21 @@ private fun localTime(value:String):String=runCatching{java.time.OffsetDateTime.
 }
 
 @Composable private fun Prescription(m:ClinicModel,close:()->Unit,initialPatient:JSONObject?=null){
-    val requestId=rememberSaveable {java.util.UUID.randomUUID().toString()}
-    var patients by remember {mutableStateOf(emptyList<JSONObject>())};var selected by remember {mutableStateOf<JSONObject?>(initialPatient)}
+    val draft=rememberDraft("prescription:"+(initialPatient?.s("id")?:"new")+":"+(initialPatient?.optJSONArray("admissions")?.objects()?.firstOrNull{it.s("discharged_at").isEmpty()}?.s("id")?:""))
+    val requestId=draft.id
+    var patients by remember {mutableStateOf(emptyList<JSONObject>())};var selected by remember {mutableStateOf<JSONObject?>(initialPatient?:draft.get("patient").takeIf{it.isNotEmpty()}?.let{JSONObject(it)})}
     var query by remember {mutableStateOf("")};var loadError by remember {mutableStateOf("")}
-    var description by remember {mutableStateOf("")};var medication by remember {mutableStateOf("")}
-    var dose by remember {mutableStateOf("")};var unit by remember {mutableStateOf("")};var route by remember {mutableStateOf("")}
-    var kind by remember {mutableStateOf("Догляд")};var executor by remember {mutableStateOf("NURSE")}
-    var count by remember {mutableStateOf("1")};var interval by remember {mutableStateOf("24")}
-    var scheduled by remember {mutableStateOf(java.time.ZonedDateTime.now().withSecond(0).withNano(0))}
+    var description by draftText(draft,"description","");var medication by draftText(draft,"medication","")
+    var dose by draftText(draft,"dose","");var unit by draftText(draft,"unit","");var route by draftText(draft,"route","")
+    var kind by draftText(draft,"kind","Догляд");var executor by draftText(draft,"executor","NURSE")
+    var count by draftText(draft,"count","1");var interval by draftText(draft,"interval","24")
+    var scheduledText by draftText(draft,"scheduled",java.time.ZonedDateTime.now().withSecond(0).withNano(0).toString())
+    val scheduled=java.time.ZonedDateTime.parse(scheduledText)
     var reviewing by remember {mutableStateOf(false)}
     val context=LocalContext.current
     LaunchedEffect(query){delay(300);try{patients=(ClinicApi.request("/patients?q="+java.net.URLEncoder.encode(query,"UTF-8")) as JSONArray).objects();loadError=""}catch(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e;loadError=e.message ?: "Помилка пошуку"}}
     AlertDialog(onDismissRequest={if(!m.busy)close()},title={Text(if(reviewing)"Перевірте призначення" else "Нове призначення")},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
+        DraftNotice(draft)
         if(reviewing){
             Text(selected?.s("name") ?: "",fontWeight=FontWeight.Bold);Text("Дата народження: ${selected?.s("birth_date")?.take(10)}")
             Text("$kind • ${roles[executor]}\n$description")
@@ -390,9 +396,9 @@ private fun localTime(value:String):String=runCatching{java.time.OffsetDateTime.
             if(selected==null){
                 OutlinedTextField(query,{if(it.length<=200)query=it},label={Text("Пацієнт, номер, палата або ліжко")},singleLine=true,modifier=Modifier.fillMaxWidth())
                 if(loadError.isNotEmpty())ErrorCard(loadError)
-                patients.take(8).forEach{p->TextButton(onClick={selected=p},modifier=Modifier.fillMaxWidth()){Text("${p.s("name")} • № ${p.s("patient_number")} • Палата ${p.s("room_number").ifEmpty{"—"}} • Ліжко ${p.s("bed_number").ifEmpty{"—"}}")}}
+                patients.take(8).forEach{p->TextButton(onClick={selected=p;draft.set("patient",p.toString())},modifier=Modifier.fillMaxWidth()){Text("${p.s("name")} • № ${p.s("patient_number")} • Палата ${p.s("room_number").ifEmpty{"—"}} • Ліжко ${p.s("bed_number").ifEmpty{"—"}}")}}
                 Text("Уточніть пошук, якщо потрібної картки немає серед перших результатів.",style=MaterialTheme.typography.bodySmall)
-            }else{Text(selected!!.s("name"),fontWeight=FontWeight.Bold);TextButton(onClick={selected=null}){Text("Інший пацієнт")}}
+            }else{Text(selected!!.s("name"),fontWeight=FontWeight.Bold);TextButton(onClick={selected=null;draft.set("patient","")}){Text("Інший пацієнт")}}
             Choice("Вид призначення",kind,listOf("Догляд","Ліки","Реабілітація")){kind=it;executor=if(it=="Реабілітація")"THERAPIST" else "NURSE";if(it!="Ліки"){medication="";dose="";unit="";route=""}}
             OutlinedTextField(description,{if(it.length<=4000)description=it},label={Text("Що потрібно виконати")},modifier=Modifier.fillMaxWidth())
             if(kind=="Ліки"){
@@ -403,14 +409,14 @@ private fun localTime(value:String):String=runCatching{java.time.OffsetDateTime.
                 OutlinedTextField(route,{if(it.length<=100)route=it},label={Text("Шлях введення / уточнення")},modifier=Modifier.fillMaxWidth())
             }
             if(kind!="Ліки")Choice("Виконавець",roles[executor] ?: "",listOf("Медсестра","Реабілітолог")){executor=if(it=="Медсестра")"NURSE" else "THERAPIST"}
-            OutlinedButton(onClick={android.app.DatePickerDialog(context,{_,year,month,day->scheduled=scheduled.withDayOfMonth(1).withYear(year).withMonth(month+1).withDayOfMonth(day)},scheduled.year,scheduled.monthValue-1,scheduled.dayOfMonth).show()}){Icon(Icons.Outlined.CalendarMonth,null);Text(scheduled.format(java.time.format.DateTimeFormatter.ofPattern(" dd.MM.yyyy")))}
-            OutlinedButton(onClick={android.app.TimePickerDialog(context,{_,hour,minute->scheduled=scheduled.withHour(hour).withMinute(minute)},scheduled.hour,scheduled.minute,true).show()}){Icon(Icons.Outlined.Schedule,null);Text(scheduled.format(java.time.format.DateTimeFormatter.ofPattern(" HH:mm")))}
+            OutlinedButton(onClick={android.app.DatePickerDialog(context,{_,year,month,day->scheduledText=scheduled.withDayOfMonth(1).withYear(year).withMonth(month+1).withDayOfMonth(day).toString()},scheduled.year,scheduled.monthValue-1,scheduled.dayOfMonth).show()}){Icon(Icons.Outlined.CalendarMonth,null);Text(scheduled.format(java.time.format.DateTimeFormatter.ofPattern(" dd.MM.yyyy")))}
+            OutlinedButton(onClick={android.app.TimePickerDialog(context,{_,hour,minute->scheduledText=scheduled.withHour(hour).withMinute(minute).toString()},scheduled.hour,scheduled.minute,true).show()}){Icon(Icons.Outlined.Schedule,null);Text(scheduled.format(java.time.format.DateTimeFormatter.ofPattern(" HH:mm")))}
             OutlinedTextField(count,{count=it.filter(Char::isDigit).take(2)},label={Text("Кількість виконань (1–90)")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),singleLine=true)
             OutlinedTextField(interval,{interval=it.take(6)},label={Text("Інтервал, годин (1–720)")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Decimal),singleLine=true)
         }
         if(m.error.isNotEmpty())ErrorCard(m.error)
-    }},confirmButton={TextButton(enabled=!m.busy&&!m.uncertain&&selected!=null&&description.isNotBlank()&&(count.toIntOrNull() ?: 0) in 1..90&&(interval.toDoubleOrNull() ?: 0.0) in 1.0..720.0&&(kind!="Ліки"||(medication.isNotBlank()&&dose.isNotBlank()&&unit.isNotBlank()&&route.isNotBlank())),onClick={
-        if(!reviewing){reviewing=true}else m.write("/tasks",JSONObject().put("request_id",requestId).put("patient_id",selected!!.s("id")).put("description",description).put("task_type",kind).put("executor_role",executor).put("medication",medication).put("dose",dose).put("dose_unit",unit).put("route",route).put("scheduled_at",scheduled.toInstant().toString()).put("repeat_count",count.toInt()).put("interval_hours",interval.toDouble())){close()}
+    }},confirmButton={TextButton(enabled=draft.error.isEmpty()&&!m.busy&&!m.uncertain&&selected!=null&&description.isNotBlank()&&(count.toIntOrNull() ?: 0) in 1..90&&(interval.toDoubleOrNull() ?: 0.0) in 1.0..720.0&&(kind!="Ліки"||(medication.isNotBlank()&&dose.isNotBlank()&&unit.isNotBlank()&&route.isNotBlank())),onClick={
+        if(!reviewing){reviewing=true}else m.write("/tasks",JSONObject().put("request_id",requestId).put("expected_admission_id",selected!!.s("admission_id").ifEmpty{selected!!.optJSONArray("admissions")?.objects()?.firstOrNull{it.s("discharged_at").isEmpty()}?.s("id")}).put("patient_id",selected!!.s("id")).put("description",description).put("task_type",kind).put("executor_role",executor).put("medication",medication).put("dose",dose).put("dose_unit",unit).put("route",route).put("scheduled_at",scheduled.toInstant().toString()).put("repeat_count",count.toInt()).put("interval_hours",interval.toDouble()),draftScope=draft.scope){close()}
     }){Text(if(reviewing)"Призначити" else "Перевірити")}},dismissButton={TextButton(enabled=!m.busy,onClick={if(reviewing)reviewing=false else close()}){Text(if(reviewing)"Редагувати" else "Скасувати")}})
 }
 @Composable private fun Choice(label:String,value:String,options:List<String>,change:(String)->Unit){
@@ -419,16 +425,19 @@ private fun localTime(value:String):String=runCatching{java.time.OffsetDateTime.
 }
 
 @Composable private fun Examination(m:ClinicModel,patient:JSONObject,close:()->Unit){
-    var complaints by remember {mutableStateOf("")}
-    var history by remember {mutableStateOf("")}
-    var diagnosis by remember {mutableStateOf("")}
-    var allergies by remember {mutableStateOf("")}
-    var plan by remember {mutableStateOf("")}
-    var summary by remember {mutableStateOf("")}
+    val admission=patient.optJSONArray("admissions")?.objects()?.firstOrNull{it.s("discharged_at").isEmpty()}?.s("id")?:""
+    val draft=rememberDraft("assessment:"+patient.s("id")+":"+admission)
+    var complaints by draftText(draft,"complaints")
+    var history by draftText(draft,"history")
+    var diagnosis by draftText(draft,"diagnosis")
+    var allergies by draftText(draft,"allergies")
+    var plan by draftText(draft,"plan")
+    var summary by draftText(draft,"summary")
     AlertDialog(
         onDismissRequest={if(!m.busy)close()},
         title={Column{Text("Огляд лікаря");Text(patient.s("name"),style=MaterialTheme.typography.titleSmall)}},
         text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
+            DraftNotice(draft)
             Text("Запис буде збережено з вашим ім’ям і часом. Заповнюйте лише перевірені дані.")
             OutlinedTextField(value=complaints,onValueChange={complaints=it.take(4000)},label={Text("Скарги")},minLines=2,modifier=Modifier.fillMaxWidth())
             OutlinedTextField(value=history,onValueChange={history=it.take(4000)},label={Text("Анамнез")},minLines=3,modifier=Modifier.fillMaxWidth())
@@ -439,8 +448,8 @@ private fun localTime(value:String):String=runCatching{java.time.OffsetDateTime.
             if(m.error.isNotEmpty())ErrorCard(m.error)
             if(m.uncertain)Text("Збереження не підтверджено. Перевірте історію картки перед повторною дією.")
         }},
-        confirmButton={TextButton(enabled=!m.busy&&!m.uncertain&&listOf(complaints,diagnosis,allergies,plan,summary).all{it.isNotBlank()},onClick={
-            m.write("/patients/"+patient.s("id")+"/entries",JSONObject().put("kind","ASSESSMENT").put("body",summary).put("data",JSONObject().put("complaints",complaints).put("history",history).put("diagnosis",diagnosis).put("allergies",allergies).put("plan",plan))){
+        confirmButton={TextButton(enabled=draft.error.isEmpty()&&!m.busy&&!m.uncertain&&listOf(complaints,diagnosis,allergies,plan,summary).all{it.isNotBlank()},onClick={
+            m.write("/patients/"+patient.s("id")+"/entries",JSONObject().put("request_id",draft.id).put("expected_admission_id",admission).put("kind","ASSESSMENT").put("body",summary).put("data",JSONObject().put("complaints",complaints).put("history",history).put("diagnosis",diagnosis).put("allergies",allergies).put("plan",plan)),draftScope=draft.scope){
                 m.openPatient(patient.s("id"));close()
             }
         }){Text(if(m.busy)"Зберігаємо…" else "Зберегти огляд")}},

@@ -104,7 +104,7 @@ public final class ShiftAlertsService extends Service {
             int fresh=0,tasks=0;String path="/";
             for(int i=0;i<events.length();i++){JSONObject event=events.getJSONObject(i);String eventId=event.getString("id");now.add(eventId);if(!seen.contains(eventId)){fresh++;if("task".equals(event.optString("kind")))tasks++;path=event.getString("path");}}
             if(version!=generation||ended)return;
-            if(fresh>0 && preferences.contains(key))postAlert(this,tasks>0?"RehaFlow · нове завдання":"RehaFlow · нові події","Нових подій: "+fresh+". Відкрийте застосунок.",tasks>0?"/tasks":path,tasks>0 && data.optBoolean("taskAlerts",false));
+            if(fresh>0)postAlert(this,tasks>0?"RehaFlow · нове завдання":"RehaFlow · нові події","Нових подій: "+fresh+". Відкрийте застосунок.",tasks>0?"/tasks":path,tasks>0 && data.optBoolean("taskAlerts",false));
             // Keep recently seen events even when they temporarily leave the server's feed.
             if(seen.size()+now.size()<=2000)now.addAll(seen);
             preferences.edit().putStringSet(key,now).apply();

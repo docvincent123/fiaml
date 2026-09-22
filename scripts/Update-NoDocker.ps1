@@ -8,5 +8,5 @@ if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed.' }
 & npm.cmd run build
 if ($LASTEXITCODE -ne 0) { throw 'Build failed; existing database was not migrated.' }
 & (Join-Path $PSScriptRoot 'Enable-LanHttps.ps1')
-@{version='3.0.0';builtAt=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json | Set-Content -LiteralPath $installed -Encoding UTF8
+@{version='4.0.0';builtAt=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json | Set-Content -LiteralPath $installed -Encoding UTF8
 Write-Host 'Update built. Start-QureMed-Without-Docker.cmd will apply the database migration on startup.' -ForegroundColor Green

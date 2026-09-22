@@ -28,7 +28,7 @@ class ClinicModel : ViewModel() {
         error = e.message ?: "Не вдалося виконати дію."
         if (e is ApiFailure && e.status == 401) { NativeSession.clear(); user = null; data = null; patient = null }
     }
-    fun checkedUncertain() { uncertain = false; error = "" }
+    fun checkedUncertain() { if(runCatching{DraftStore.read("pending")}.getOrNull()!=null){retryPending();return};uncertain = false; error = "" }
     fun connect(address: String, done: (String) -> Unit) {
         if (busy) return
         busy = true; error = ""
@@ -48,7 +48,7 @@ class ClinicModel : ViewModel() {
             try {
                 val result = ClinicApi.request("/auth/login", "POST", JSONObject().put("login", login.trim()).put("password", password).put("device", device).put("requestShift", false), bearer = "") as JSONObject
                 NativeSession.token = result.getString("token")
-                user = ClinicApi.request("/auth/me") as JSONObject; NativeSession.userId = user!!.getString("id")
+                user = ClinicApi.request("/auth/me") as JSONObject; NativeSession.userId = user!!.getString("id"); uncertain=DraftStore.read("pending")!=null
                 changed++; done()
             } catch (e: Exception) { fail(e) } finally { busy = false }
         }
@@ -56,7 +56,7 @@ class ClinicModel : ViewModel() {
     fun restore(done:()->Unit){
         if(NativeSession.token.isEmpty()||busy)return
         busy=true
-        viewModelScope.launch{try{user=ClinicApi.request("/auth/me") as JSONObject;changed++;done()}catch(e:Exception){fail(e)}finally{busy=false}}
+        viewModelScope.launch{try{user=ClinicApi.request("/auth/me") as JSONObject;NativeSession.userId=user!!.getString("id");uncertain=DraftStore.read("pending")!=null;changed++;done()}catch(e:Exception){fail(e)}finally{busy=false}}
     }
     private fun todayAppointmentsPath(): String {
         val start=java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault())
@@ -106,14 +106,30 @@ class ClinicModel : ViewModel() {
         }
     }
     fun closePatient() { patient = null }
-    fun write(path: String, body: JSONObject = JSONObject(), method: String = "POST", done: () -> Unit = {}) {
+    fun write(path: String, body: JSONObject = JSONObject(), method: String = "POST", draftScope:String?=null, done: () -> Unit = {}) {
         if (busy || uncertain) return
         busy = true; error = ""; message = ""
         viewModelScope.launch {
-            try { ClinicApi.request(path, method, body); changed++; message = "Збережено"; done() }
-            catch (e: Exception) { if (e is ApiFailure && e.status == 0) uncertain = true; fail(e) }
+            try {
+                val safe=method=="POST"&&(path=="/tasks"||path=="/patients"||path=="/appointments"||path.matches(Regex("/patients/[0-9a-fA-F-]+/(entries|readmit)")))
+                if(safe){if(!body.has("request_id"))body.put("request_id",java.util.UUID.randomUUID().toString());DraftStore.save("pending",JSONObject().put("path",path).put("method",method).put("body",body).put("draft",draftScope?:""))}
+                ClinicApi.request(path, method, body)
+                if(safe)DraftStore.remove("pending");if(draftScope!=null)DraftStore.remove(draftScope)
+                changed++; message = "Збережено"; done()
+            }
+            catch (e: Exception) { if (e is ApiFailure && (e.status == 0||e.status>=500)) uncertain = true else if(e is ApiFailure){runCatching{DraftStore.remove("pending")}}; fail(e) }
             finally { busy = false }
         }
+    }
+    fun retryPending(){
+        if(busy)return
+        val operation=try{DraftStore.read("pending")}catch(e:Exception){fail(e);return}?:run{error="Перевірте стан дії у картці перед повтором.";uncertain=false;return}
+        busy=true
+        viewModelScope.launch{try{
+            ClinicApi.request(operation.getString("path"),operation.getString("method"),operation.getJSONObject("body"))
+            DraftStore.remove("pending");operation.s("draft").takeIf{it.isNotEmpty()}?.let{DraftStore.remove(it)}
+            uncertain=false;error="";message="Збереження підтверджено без повторного запису";select("home");changed++
+        }catch(e:Exception){if(e is ApiFailure&&e.status in 400..499&&e.status!=401){DraftStore.remove("pending");uncertain=false};fail(e)}finally{busy=false}}
     }
     fun clear() { NativeSession.clear(); user = null; data = null; patient = null; uncertain = false; error = "" }
 }

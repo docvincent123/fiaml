@@ -40,7 +40,9 @@ Write-Host ('Computer: http://localhost:' + $env:PORT) -ForegroundColor Green
 Write-Host ('Phone:    ' + $env:PUBLIC_URL) -ForegroundColor Green
 Write-Host 'Keep this window open. Press Ctrl+C to stop the server.' -ForegroundColor Yellow
 Write-Host ''
+if (Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue) { throw 'Port 3000 already in use. Stop the previous server first.' }
 $proxy = $null
+$apiProcess = $null
 try {
     if ($env:PUBLIC_URL.StartsWith('https://')) {
         $caddy = Get-Command caddy.exe -ErrorAction Stop
@@ -54,8 +56,26 @@ try {
         Copy-Item $ca (Join-Path $projectRoot 'QureMed-Local-CA.crt') -Force
         Write-Host 'Install QureMed-Local-CA.crt on staff phones as a CA certificate.' -ForegroundColor Cyan
     }
-    & $npm.Source run start
-    if ($LASTEXITCODE -ne 0) { throw "Server stopped with code $LASTEXITCODE." }
+    # Supervise both processes. Task Scheduler performs at most three retries on failure.
+    $node = Get-Command node.exe -ErrorAction Stop
+    $apiProcess = Start-Process -FilePath $node.Source -ArgumentList @('server/dist/main.js') -WorkingDirectory $projectRoot -PassThru -WindowStyle Hidden -RedirectStandardError (Join-Path $projectRoot '.local/server-error.log') -RedirectStandardOutput (Join-Path $projectRoot '.local/server.log')
+    $tracked = @($apiProcess)
+    if ($proxy) { $tracked += $proxy }
+    @($tracked | ForEach-Object { @{id=$_.Id;started=$_.StartTime.ToUniversalTime().ToString('o')} }) | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $projectRoot '.local/server-processes.json') -Encoding UTF8
+    $failures = 0
+    while ($true) {
+        Start-Sleep -Seconds 10
+        $apiProcess.Refresh()
+        if ($apiProcess.HasExited) { throw "API stopped with code $($apiProcess.ExitCode)." }
+        if ($proxy) { $proxy.Refresh(); if ($proxy.HasExited) { throw 'HTTPS proxy stopped.' } }
+        try {
+            $health = Invoke-RestMethod -Uri ('http://127.0.0.1:' + $env:PORT + '/api/health') -TimeoutSec 3
+            if ($health.status -ne 'ok' -or $health.brand -ne 'QureMed Industries') { throw 'Unexpected health response.' }
+            $failures = 0
+        } catch { $failures++; if ($failures -ge 12) { throw 'API health has failed for two minutes. Restart required.' } }
+    }
 } finally {
+    Remove-Item -LiteralPath (Join-Path $projectRoot '.local/server-processes.json') -ErrorAction SilentlyContinue
+    if ($apiProcess) { $apiProcess.Refresh(); if (-not $apiProcess.HasExited) { Stop-Process -Id $apiProcess.Id } }
     if ($proxy) { $proxy.Refresh(); if (-not $proxy.HasExited) { Stop-Process -Id $proxy.Id } }
 }

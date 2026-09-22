@@ -29,14 +29,14 @@ export class Clinic {
    const valid=await verifyPassword(b.password,u?.password_hash??'00000000000000000000000000000000:'+ '00'.repeat(64));
    if(!u||!valid){await c.query("UPDATE login_attempts SET failures=CASE WHEN window_at<now()-interval '15 minutes' THEN 1 ELSE failures+1 END, blocked_until=CASE WHEN failures>=4 AND window_at>=now()-interval '15 minutes' THEN now()+interval '15 minutes' ELSE NULL END, window_at=CASE WHEN window_at<now()-interval '15 minutes' THEN now() ELSE window_at END WHERE key=$1",[b.login.toLowerCase()]);return null;}
    await c.query('DELETE FROM login_attempts WHERE key=$1',[b.login.toLowerCase()]);
-   const s=(await c.query("INSERT INTO sessions(user_id,device,ip,expires_at) VALUES($1,$2,$3,now()+interval '14 hours') RETURNING id",[u.id,b.device,ip])).rows[0];
+   const s=(await c.query("INSERT INTO sessions(user_id,device,ip,expires_at) VALUES($1,$2,$3,now()+interval '30 hours') RETURNING id",[u.id,b.device,ip])).rows[0];
    if(b.requestShift&&u.role!=='ADMIN'&&!(await c.query('SELECT id FROM shifts WHERE user_id=$1 AND starts_at<=now() AND ends_at>now()',[u.id])).rows.length){await c.query("INSERT INTO shift_requests(user_id) VALUES($1) ON CONFLICT(user_id) WHERE status='PENDING' DO NOTHING",[u.id]);}
    await this.audit(c,null,'session.login',s.id);
    return {u,s};
   });
   if(!result) throw new UnauthorizedException('Неправильний логін/пароль або вхід тимчасово заблоковано');
   const {u,s}=result;
-  const token=await new SignJWT({sid:s.id,role:u.role,permissions:permissions(u)}).setProtectedHeader({alg:'HS256'}).setSubject(u.id).setIssuer('quremed-local').setAudience('rehaflow').setIssuedAt().setExpirationTime('14h').sign(this.key);
+  const token=await new SignJWT({sid:s.id,role:u.role,permissions:permissions(u)}).setProtectedHeader({alg:'HS256'}).setSubject(u.id).setIssuer('quremed-local').setAudience('rehaflow').setIssuedAt().setExpirationTime('30h').sign(this.key);
   return {token,user:{id:u.id,name:u.name,role:u.role,specialty:u.specialty,role_label:u.role_label,permissions:permissions(u),sid:s.id}};
  }
  async authenticate(token:string):Promise<Actor>{
@@ -46,7 +46,7 @@ export class Clinic {
   }catch{throw new UnauthorizedException('Сесію завершено. Увійдіть знову');}
  }
  async onShift(a:Actor,c:Queryable=this.db){return !!(await c.query('SELECT 1 FROM shifts WHERE user_id=$1 AND starts_at<=now() AND ends_at>now()',[a.id])).rows.length;}
- async me(a:Actor){await this.db.query('UPDATE sessions SET last_seen_at=now() WHERE id=$1',[a.sid]);return {...a,onShift:await this.onShift(a)};}
+ async me(a:Actor){await this.db.query('UPDATE sessions SET last_seen_at=now() WHERE id=$1',[a.sid]);const shift=(await this.db.query('SELECT ends_at FROM shifts WHERE user_id=$1 AND starts_at<=now() AND ends_at>now() ORDER BY ends_at DESC LIMIT 1',[a.id])).rows[0];const session=(await this.db.query('SELECT expires_at FROM sessions WHERE id=$1',[a.sid])).rows[0];return {...a,onShift:!!shift,shiftEndsAt:shift?.ends_at??null,sessionExpiresAt:session?.expires_at??null};}
  async logout(a:Actor){await this.db.tx(async c=>{await c.query('UPDATE sessions SET revoked_at=now() WHERE id=$1',[a.sid]);await c.query("UPDATE shift_requests SET status='REJECTED',decided_at=now(),decided_by=$1 WHERE user_id=$1 AND status='PENDING'",[a.id]);});return {ok:true};}
  async sessions(a:Actor){allow(a,'sessions.manage');return (await this.db.query("SELECT s.id,s.device,s.ip,s.created_at,s.last_seen_at,s.expires_at,s.revoked_at,u.name,u.role,(s.revoked_at IS NULL AND s.expires_at>now() AND s.last_seen_at>now()-interval '90 seconds') AS online FROM sessions s JOIN users u ON u.id=s.user_id ORDER BY s.created_at DESC LIMIT 300")).rows;}
  async revoke(a:Actor,id:string){allow(a,'sessions.manage');uuid.parse(id);await this.db.tx(async c=>{if(!(await c.query('UPDATE sessions SET revoked_at=now() WHERE id=$1 RETURNING id',[id])).rows.length) throw new NotFoundException();await this.audit(c,a,'session.revoked',id);});return {ok:true};}
@@ -64,7 +64,7 @@ export class Clinic {
   if(Object.keys(b.permissions).some(p=>!defaults[b.role].includes(p))) throw new BadRequestException('Право не належить цій ролі');
   if(!id&&!b.password) throw new BadRequestException('Вкажіть пароль');
   return this.db.tx(async c=>{await c.query('SELECT pg_advisory_xact_lock(780126)');
-   if(id){const old=(await c.query('SELECT * FROM users WHERE id=$1 FOR UPDATE',[id])).rows[0];if(!old) throw new NotFoundException();
+   if(id){const old=(await c.query('SELECT * FROM users WHERE id=$1 FOR UPDATE',[id])).rows[0];if(!old) throw new NotFoundException();if(old.role!=='ADMIN'&&b.role==='ADMIN'&&(!b.password||b.password.length<12))throw new BadRequestException('Для призначення адміністратором задайте новий пароль: мінімум 12 символів');
     if(old.role==='ADMIN'&&(!b.active||b.role!=='ADMIN'||b.permissions['users.manage']===false)){
      const others=(await c.query("SELECT id FROM users WHERE role='ADMIN' AND active AND id<>$1 AND COALESCE((permissions->>'users.manage')::boolean,true)",[id])).rows;
      if(!others.length) throw new ConflictException('Потрібен хоча б один активний адміністратор');
@@ -76,7 +76,7 @@ export class Clinic {
   });
  }
  async shiftRequests(a:Actor){if(a.role!=='ADMIN')throw new ForbiddenException();return (await this.db.query("SELECT r.*,u.name,u.role,u.role_label FROM shift_requests r JOIN users u ON u.id=r.user_id WHERE r.status='PENDING' ORDER BY r.requested_at")).rows;}
- async approveShift(a:Actor,requestId:string,approve:boolean){if(a.role!=='ADMIN')throw new ForbiddenException();uuid.parse(requestId);return this.db.tx(async c=>{const ref=(await c.query('SELECT user_id FROM shift_requests WHERE id=$1',[requestId])).rows[0];if(!ref)throw new NotFoundException();const user=(await c.query('SELECT active,role FROM users WHERE id=$1 FOR UPDATE',[ref.user_id])).rows[0];if(!user?.active||user.role==='ADMIN')throw new ConflictException('Працівник недоступний');const r=(await c.query("SELECT * FROM shift_requests WHERE id=$1 AND status='PENDING' FOR UPDATE",[requestId])).rows[0];if(!r)throw new ConflictException('Запит уже опрацьовано');if(approve&&!(await c.query('SELECT 1 FROM shifts WHERE user_id=$1 AND ends_at>now() AND starts_at<=now()',[r.user_id])).rows.length)await c.query("INSERT INTO shifts(user_id,ends_at) VALUES($1,now()+interval '12 hours')",[r.user_id]);await c.query('UPDATE shift_requests SET status=$2,decided_by=$3,decided_at=now() WHERE id=$1',[requestId,approve?'APPROVED':'REJECTED',a.id]);await this.audit(c,a,approve?'shift.approved':'shift.rejected',requestId);await this.changed(c);return {ok:true};});}
+ async approveShift(a:Actor,requestId:string,approve:boolean,durationHours=12){durationHours=z.number().int().min(1).max(24).parse(durationHours);if(a.role!=='ADMIN')throw new ForbiddenException();uuid.parse(requestId);return this.db.tx(async c=>{const ref=(await c.query('SELECT user_id FROM shift_requests WHERE id=$1',[requestId])).rows[0];if(!ref)throw new NotFoundException();const user=(await c.query('SELECT active,role FROM users WHERE id=$1 FOR UPDATE',[ref.user_id])).rows[0];if(!user?.active||user.role==='ADMIN')throw new ConflictException('Працівник недоступний');const r=(await c.query("SELECT * FROM shift_requests WHERE id=$1 AND status='PENDING' FOR UPDATE",[requestId])).rows[0];if(!r)throw new ConflictException('Запит уже опрацьовано');if(approve&&!(await c.query('SELECT 1 FROM shifts WHERE user_id=$1 AND ends_at>now() AND starts_at<=now()',[r.user_id])).rows.length)await c.query("INSERT INTO shifts(user_id,ends_at) VALUES($1,now()+($2::int*interval '1 hour'))",[r.user_id,durationHours]);await c.query('UPDATE shift_requests SET status=$2,decided_by=$3,decided_at=now() WHERE id=$1',[requestId,approve?'APPROVED':'REJECTED',a.id]);await this.audit(c,a,approve?'shift.approved':'shift.rejected',requestId);await this.changed(c);return {ok:true};});}
  async shift(a:Actor,input:any){if(a.role==='ADMIN')throw new ForbiddenException('Адміністратору не потрібна робоча зміна');const b=z.object({start:z.boolean()}).parse(input);
   await this.db.tx(async c=>{await c.query('SELECT id FROM users WHERE id=$1 FOR UPDATE',[a.id]);if(b.start){if(!await this.onShift(a,c)) await c.query("INSERT INTO shift_requests(user_id) VALUES($1) ON CONFLICT(user_id) WHERE status='PENDING' DO NOTHING",[a.id]);}else{
    if((await c.query("SELECT 1 FROM tasks WHERE taken_by=$1 AND status='IN_PROGRESS'",[a.id])).rows.length) throw new ConflictException('Спочатку завершіть або поверніть свої завдання');

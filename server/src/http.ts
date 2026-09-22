@@ -22,7 +22,7 @@ export class Errors implements ExceptionFilter {
 @Controller('api')
 export class PublicController {
  constructor(@Inject(CLINIC) private clinic:Clinic){}
- @Get('health') async health(){await this.clinic.db.query('SELECT 1');return {status:'ok',brand:'QureMed Industries',version:'3.0.0',apiMajor:1};}
+ @Get('health') async health(){await this.clinic.db.query('SELECT 1');return {status:'ok',brand:'QureMed Industries',version:'4.0.0',apiMajor:1};}
  @Post('auth/login') login(@Body() b:any,@Req() r:Request){return this.clinic.login(b,r.ip??'unknown');}
 }
 @Controller('api') @UseGuards(AuthGuard)
@@ -43,7 +43,7 @@ export class ApiController {
  @Delete('sessions/:id') revoke(@Req() r:AuthRequest,@Param('id') id:string){return this.c.revoke(r.actor,id);}
  @Post('shift') shift(@Req() r:AuthRequest,@Body() b:any){return this.c.shift(r.actor,b);}
  @Get('shift/requests') shiftRequests(@Req() r:AuthRequest){return this.c.shiftRequests(r.actor);}
- @Post('shift/requests/:id/:action') shiftDecision(@Req() r:AuthRequest,@Param('id') id:string,@Param('action') action:string){if(!['approve','reject'].includes(action))throw new HttpException('Невідома дія',400);return this.c.approveShift(r.actor,id,action==='approve');}
+ @Post('shift/requests/:id/:action') shiftDecision(@Req() r:AuthRequest,@Param('id') id:string,@Param('action') action:string,@Body() b:any){if(!['approve','reject'].includes(action))throw new HttpException('Невідома дія',400);return this.c.approveShift(r.actor,id,action==='approve',b?.duration_hours??12);}
  @Get('patients') patients(@Req() r:AuthRequest,@Query() q:any){return this.c.patients(r.actor,q);}
  @Post('patients') register(@Req() r:AuthRequest,@Body() b:any){return this.c.register(r.actor,b);}
  @Get('patients/:id/qr')

@@ -1,6 +1,8 @@
-# RehaFlow — QureMed Industries
+# RehaFlow 4.0 — QureMed Industries
 
-Медична ERP для локальної мережі реабілітаційного центру: NestJS + PostgreSQL, React для телефонів/планшетів і React у Windows-оболонці WinUI 3 / WebView2. Усі клієнти використовують один API та спільну базу.
+Медична ERP для локальної мережі реабілітаційного центру: NestJS + PostgreSQL, нативний Android (Kotlin / Compose) для телефонів/планшетів і React у Windows-оболонці WinUI 3 / WebView2. Усі клієнти використовують один API та спільну базу.
+
+Актуальні зміни та порядок оновлення: [RehaFlow 4.0](docs/RELEASE-4.0.md).
 
 ## Що реалізовано
 
@@ -101,3 +103,4 @@ Windows build: `dotnet publish desktop/QureMed.Desktop/QureMed.Desktop.csproj -c
 Windows-оболонка відкриває React з обраного сервера. При недоступному сервері залишається екран підключення; автономне редагування медичних даних не підтримується. Перехід на інші origin заблоковано, host objects/доступ до файлової системи чи запуску команд для JavaScript не надається. Кожен сервер має окремий WebView2 profile; пароль не автозберігається. JWT зберігається лише в sessionStorage вебсесії; закриття вікна завершує її локальне зберігання. Для переключення центру введіть іншу HTTPS-адресу у верхній панелі.
 
 CI перевіряє завантаження справжнього React bundle через Windows-оболонку та сигнал `React UI ready`. Усі клінічні API окремо перевіряються на PostgreSQL. `scripts/desktop-preview.mjs` — лише тестовий сервер CI, не заміна локального сервера центру.
+

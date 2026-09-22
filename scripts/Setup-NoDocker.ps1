@@ -52,7 +52,8 @@ $configPath = Join-Path $projectRoot '.env.nodocker'
 if (Test-Path $configPath) {
     Write-Host 'QureMed is already installed. Starting the local server...' -ForegroundColor Green
     & (Join-Path $PSScriptRoot 'Enable-LanHttps.ps1')
-    & (Join-Path $PSScriptRoot 'Run-NoDocker.ps1')
+    & (Join-Path $PSScriptRoot 'Install-Maintenance.ps1')
+& (Join-Path $PSScriptRoot 'Run-NoDocker.ps1')
     exit $LASTEXITCODE
 }
 
@@ -163,4 +164,5 @@ Write-Host 'Installation completed.' -ForegroundColor Green
 & (Join-Path $PSScriptRoot 'Enable-LanHttps.ps1') -ServerIp $serverIp
 Write-Host ('Open on the phone: https://' + $serverIp) -ForegroundColor Green
 Write-Host 'Login: admin' -ForegroundColor Green
+& (Join-Path $PSScriptRoot 'Install-Maintenance.ps1')
 & (Join-Path $PSScriptRoot 'Run-NoDocker.ps1')
