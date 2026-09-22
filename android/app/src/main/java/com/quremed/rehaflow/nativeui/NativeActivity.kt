@@ -264,6 +264,14 @@ class NativeActivity : ComponentActivity() {
         item{InfoCard("Лікуючий лікар",ad?.s("doctor_name")?.ifEmpty{"Не призначено"} ?: "Не призначено","Палата ${ad?.s("room_number")?.ifEmpty{"—"} ?: "—"} • ліжко ${ad?.s("bed_number")?.ifEmpty{"—"} ?: "—"}\nНаправлення: ${ad?.s("referral")?.ifEmpty{"—"} ?: "—"}")}
         item{InfoCard("Домашня адреса",p.s("address").ifEmpty{"Не вказана"},"Контакт близької людини: "+p.s("emergency_contact").ifEmpty{"Не вказаний"})}
         item{InfoCard("Причина звернення",ad?.s("complaints")?.ifEmpty{"Не вказана"} ?: "Не вказана","Стать: "+(mapOf("FEMALE" to "Жіноча","MALE" to "Чоловіча","OTHER" to "Інша")[p.s("sex")] ?: "Не вказана"))}
+        val assessment=p.optJSONArray("entries")?.objects()?.firstOrNull{it.s("kind")=="ASSESSMENT"&&it.s("admission_id")==ad?.s("id")}
+        val corrected=assessment!=null&&p.optJSONArray("entries")?.objects()?.any{it.s("corrects_id")==assessment.s("id")}==true
+        if(m.can("clinical.write")||m.can("observations.write")||m.can("rehab.write"))item{Card(colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.secondaryContainer),modifier=Modifier.fillMaxWidth()){Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
+            Text("Алергії · запис лікаря",style=MaterialTheme.typography.labelLarge)
+            Text(assessment?.optJSONObject("data")?.s("allergies")?.ifEmpty{"Ще не уточнено лікарем"} ?: "Ще не уточнено лікарем",style=MaterialTheme.typography.titleMedium)
+            if(assessment!=null)Text(assessment.s("author")+" · "+localTime(assessment.s("created_at")),style=MaterialTheme.typography.bodySmall)
+            if(corrected)Text("Запис має виправлення — перевірте медичні записи",color=MaterialTheme.colorScheme.error)
+        }}}
         item{NativeClinicalActions(m,p)}
         if(ad!=null && m.can("tasks.create"))item{ActionTile("Призначити лікування","Пацієнта вже обрано · ліки, догляд, реабілітація",Icons.Outlined.Medication){prescribing=true}}
         if(ad!=null && m.can("clinical.write"))item{ActionTile("Новий огляд","Скарги, діагноз, алергії та план",Icons.Outlined.EditNote){examining=true}}
@@ -292,9 +300,11 @@ private val taskStatuses=mapOf("OPEN" to "У пулі","IN_PROGRESS" to "У ро
     var prescribing by remember {mutableStateOf(false)}
     var filter by remember {mutableStateOf("ALL")};var selected by remember {mutableStateOf<JSONObject?>(null)}
     val rows=(m.data as? JSONArray)?.objects() ?: emptyList()
+    LaunchedEffect(m.search){delay(350);m.offset=0;m.changed++}
     Column {
         Text("Завдання за зміну",style=MaterialTheme.typography.titleLarge)
         Text("Заплановані до кінця зміни, незавершені та виконані за зміну",style=MaterialTheme.typography.bodySmall)
+        OutlinedTextField(m.search,{m.search=it.take(200)},label={Text("ПІБ, номер, палата або призначення")},leadingIcon={Icon(Icons.Outlined.Search,null)},singleLine=true,modifier=Modifier.fillMaxWidth().padding(vertical=8.dp))
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){
             FilterChip(selected=filter=="OPEN",onClick={filter="OPEN"},label={Text("У пулі")})
             FilterChip(selected=filter=="IN_PROGRESS",onClick={filter="IN_PROGRESS"},label={Text("У роботі")})
@@ -311,6 +321,7 @@ private val taskStatuses=mapOf("OPEN" to "У пулі","IN_PROGRESS" to "У ро
                     Text(t.s("patient_name"),style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold,modifier=Modifier.fillMaxWidth().clickable{if(m.can("patients.read"))open("/patients?patient="+t.s("patient_id"))})
                     Text("${taskStatuses[t.s("status")] ?: ""} • ${localTime(t.s("scheduled_at"))}",color=MaterialTheme.colorScheme.primary)
                     Text("Додав: ${t.s("creator").ifEmpty{"—"}} · ${localTime(t.s("created_at"))}",style=MaterialTheme.typography.bodySmall)
+                    if(t.s("status") in listOf("OPEN","IN_PROGRESS")&&runCatching{java.time.Instant.parse(t.s("scheduled_at")).isBefore(java.time.Instant.now())}.getOrDefault(false))Text("Час виконання минув",color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.labelLarge)
                     Text(t.s("description"));if(t.s("medication").isNotEmpty())Text("${t.s("medication")} • ${t.s("dose")} ${t.s("dose_unit")} • ${t.s("route")}")
                     Text("Палата ${t.s("room_number").ifEmpty{"—"}} • Ліжко ${t.s("bed_number").ifEmpty{"—"}} • ${t.s("cabinet_name")}",style=MaterialTheme.typography.bodySmall)
                     if(t.optBoolean("not_done"))Text("Не виконано: ${t.s("outcome")}",color=MaterialTheme.colorScheme.error)

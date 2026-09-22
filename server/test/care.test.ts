@@ -279,3 +279,10 @@ test('Clinical roles receive patient identity, address and treatment authors thr
  for(const who of [d1,n1,therapist]){const card=await c.patient(who,p.id);assert.equal(card.name,p.name);assert.equal(card.address,'Адреса');assert.equal(card.timelineTasks.find(x=>x.id===t.id).creator,d1.name);assert.equal(card.entries[0].data.history,'Анамнез зі слів пацієнта');}
  for(const who of [d1,n1,therapist])await assert.rejects(()=>c.patients(who,{status:'ARCHIVED'}));
 });
+
+test('Shift task search matches patient number and description without crossing executor roles',async()=>{
+ const nurse=await actor('NURSE','search-'+crypto.randomUUID());await approvedShift(nurse);
+ const p=await patient(),own=await task(p.id,{description:'Пошуковий маркер 481516'}),other=await task(p.id,{executor_role:'THERAPIST',description:'Пошуковий маркер 481516'});
+ for(const q of ['481516',String(p.patient_number)]){const rows=await c.tasks(nurse,{scope:'shift',q});assert.ok(rows.some(t=>t.id===own.id));assert.ok(!rows.some(t=>t.id===other.id));}
+ assert.equal((await c.tasks(nurse,{scope:'shift',q:'no-match-'+crypto.randomUUID()})).length,0);
+});

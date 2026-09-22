@@ -77,7 +77,7 @@ class ClinicModel : ViewModel() {
             val path = when (selected) {
                 "home" -> "/operations"
                 "patients" -> "/patients?status=ACTIVE&offset=$offset&q=" + java.net.URLEncoder.encode(search, "UTF-8")
-                "tasks" -> "/tasks?scope=shift&offset=$offset"
+                "tasks" -> "/tasks?scope=shift&offset=$offset&q="+java.net.URLEncoder.encode(search,"UTF-8")
                 "messages" -> "/care/messages"
                 "rooms" -> "/rooms"
                 "schedule" -> todayAppointmentsPath()

@@ -1,0 +1,29 @@
+name: RehaFlow UI review
+on:
+  push:
+    branches: [codex/desktop-installer-roles]
+    paths: ['web/**', 'scripts/ui-review.cjs', '.github/workflows/ui-review.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w web
+      - name: Install review browser
+        run: |
+          npm install --prefix /tmp/rehaflow-ui --no-save playwright@1.58.2
+          /tmp/rehaflow-ui/node_modules/.bin/playwright install --with-deps chromium
+      - name: Review production UI with synthetic fixtures
+        env:
+          NODE_PATH: /tmp/rehaflow-ui/node_modules
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ui-review.cjs
